@@ -20,7 +20,6 @@ export filter_line_numbers,
 
 
 """
-
     filter_line_numbers(e)
 
 Return `e` with all `LineNumberNode` entries removed recursively from any
@@ -38,8 +37,9 @@ julia> ex = quote
 end
 
 julia> println(filter_line_numbers(ex))
+x + y
+````
 """
-
 filter_line_numbers(e::Expr) =
     let args = filter(a -> !(a isa LineNumberNode), e.args)
         Expr(e.head, filter_line_numbers.(args)...)
@@ -235,8 +235,8 @@ as bindable pattern-variable names.
 ```julia
 m = @match (x, y) x + y
 ok, vals = m(:(a + b))
+```
 """
-
 macro match(symbols, pattern)
     @assert(
         symbols isa Expr &&
@@ -249,89 +249,6 @@ macro match(symbols, pattern)
     matcher = compile_matcher(symbols.args, pattern)
     esc(:($matcher ∘ filter_line_numbers))
 end
-
-"""
-    parse_rule(rule)
-
-Parse a rule of the form
-
-    pattern => args -> code
-
-into its structured components.
-
-# Arguments
-- `rule`: a Julia expression representing one rule declaration
-
-# Returns
-A 4-tuple
-
-    (symbols, expr_name, pattern, code)
-
-where:
-- `symbols` is a collection of bindable pattern-variable symbols
-- `expr_name` is either `nothing` or a symbol naming the entire matched expression
-- `pattern` is the left-hand-side match pattern
-- `code` is the right-hand-side transformation code
-
-# Accepted argument forms
-This function supports the same rule-argument forms as the textbook:
-
-- `x -> code`
-- `(x, y) -> code`
-- `(x, y; e) -> code`
-
-In the third form, `e` names the whole matched expression.
-
-# How it works
-This function uses the matcher layer you already built:
-1. It first matches the outer rule syntax `pattern => args -> code`.
-2. It then parses the `args` part to determine:
-   - the list of bound symbols
-   - the optional whole-expression name.
-
-# Why this step matters
-This is the bridge from the generic matcher system to the rule system.
-Later, `compile_rule` will assume every rule has already been normalized
-into this structured representation.
-"""
-function parse_rule(rule)
-    match_rule = @match (pattern, args, code) pattern => args -> code
-    isok, rule_parts = match_rule(rule)
-
-    if !isok
-        error("Syntax error in rule $rule")
-    end
-
-    pattern, args, code = rule_parts
-
-    match_arg1 = @match (args, expr) (args..., ; expr)
-    match_arg2 = @match (args, expr) (args...,)
-
-    begin
-        ismatch, bindings = match_arg1(args)
-        ismatch
-    end ||
-    begin
-        ismatch, bindings = match_arg2(args)
-        ismatch
-    end ||
-    begin
-        bindings = (Vector{Any}([args]), nothing)
-    end
-
-    symbols, expr_name = bindings
-
-    if !all(isa.(symbols, Symbol))
-        error("Arguments should all be symbols in $symbols")
-    end
-
-    if !(expr_name === nothing || expr_name isa Symbol)
-        error("Expression parameter should be a symbol")
-    end
-
-    symbols, expr_name, pattern, code
-end
-
 
 """
     parse_rule(rule)
