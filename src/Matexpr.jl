@@ -18,7 +18,6 @@ export filter_line_numbers,
        @rule,
        @rules
 
-# test push change
 
 """
 
