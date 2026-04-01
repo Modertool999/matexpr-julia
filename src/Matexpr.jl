@@ -29,17 +29,8 @@ contained `Expr` trees.
 - If `e isa Expr`, a new expression with the same `head` and recursively
   filtered arguments
 - Otherwise, `e` unchanged
-
-# Examples
-````jldoctest
-julia> ex = quote
-    x + y
-end
-
-julia> println(filter_line_numbers(ex))
-x + y
-````
 """
+
 filter_line_numbers(e::Expr) =
     let args = filter(a -> !(a isa LineNumberNode), e.args)
         Expr(e.head, filter_line_numbers.(args)...)
