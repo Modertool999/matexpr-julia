@@ -62,6 +62,8 @@ filter_line_numbers(e::Expr) =
         Expr(e.head, filter_line_numbers.(args)...)
     end
 
+filter_line_numbers(e) = e
+
 
 """
     match_gen!(bindings, e, pattern)
@@ -95,6 +97,12 @@ function match_gen!(bindings, e, s::Symbol)
         return :($e == $binding)
     end
 end
+
+match_gen!(bindings, e, pattern::Expr) =
+    let head = QuoteNode(pattern.head),
+        argmatch = match_gen_args!(bindings, e, pattern.args)
+        :($e isa Expr && $e.head == $head && $argmatch)
+    end
 
 """
     match_gen!(bindings, e, pattern)
