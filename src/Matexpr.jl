@@ -34,7 +34,7 @@ julia> dump(ex)
 Expr
   head: Symbol block
   args: Array{Any}((2,))
-    1: LineNumberNode
+    1: LineNumberNode         <-- present before filtering
       ...
     2: Expr
       head: Symbol call
@@ -62,36 +62,20 @@ filter_line_numbers(e::Expr) =
         Expr(e.head, filter_line_numbers.(args)...)
     end
 
-filter_line_numbers(e) = e
 
 """
     match_gen!(bindings, e, pattern)
 
-Generate Julia code that checks whether the expression named by `e`
-matches `pattern`, while updating `bindings` to record pattern-variable
-bindings.
+Generate Julia code that checks whether expression `e`
+matches `pattern`, updating dictionary `bindings` as pattern variables are bound.
 
-# Arguments
-- `bindings`: a dictionary from symbols to either `nothing` or a generated
-  symbol used to store that variable's matched value
-- `e`: a symbol naming the current expression being matched
-- `pattern`: the pattern to match against
-
-# Returns
-A Julia expression that evaluates to `true` if the match succeeds and
+# Returns 
+Julia expression that evaluates to `true` if the match succeeds and
 `false` otherwise.
 
-# Cases
-This function has three main behaviors:
-- non-symbol, non-`Expr` patterns are matched by equality
-- symbols are either matched literally or treated as pattern variables,
-  depending on whether they appear in `bindings`
-- `Expr` patterns are matched structurally by checking the head and
-  recursively matching the arguments
-
-# Design note
-This function does not itself perform matching immediately. It generates
-matcher code that will later be assembled into a compiled matcher.
+# Notes
+This function does not perform matching directly. Instead, it generates
+Julia code that will later be assembled into a matcher.
 """
 match_gen!(bindings, e, pattern) = :($e == $pattern)
 
@@ -113,23 +97,58 @@ function match_gen!(bindings, e, s::Symbol)
 end
 
 """
-    match_gen_lists!(bindings, exprs, patterns)
+    match_gen!(bindings, e, pattern)
 
-Generate code that matches each expression symbol in `exprs` against the
-corresponding item in `patterns`, combining the results with `&&`.
-
-# Arguments
-- `bindings`: matcher binding table
-- `exprs`: collection of symbols naming expressions to check
-- `patterns`: collection of pattern nodes
+Generate Julia code that checks whether expression `e` matches `pattern`,
+updating `bindings` as pattern variables are bound.
 
 # Returns
-A Julia expression that evaluates to `true` only if every pairwise match
+A Julia expression that evaluates to `true` if the match succeeds and
+`false` otherwise.
+
+# Notes
+This function does not perform matching directly. Instead, it generates
+Julia code that can later be assembled into a matcher.
+"""
+match_gen!(bindings, e, pattern) = :($e == $pattern)
+
+match_gen!(bindings, e, pattern::Expr) =
+    let head = QuoteNode(pattern.head),
+        argmatch = match_gen_args!(bindings, e, pattern.args)
+        :($e isa Expr && $e.head == $head && $argmatch)
+    end
+
+function match_gen!(bindings, e, s::Symbol)
+    if !(s in keys(bindings))
+        qs = QuoteNode(s)
+        return :($e == $qs)
+    elseif bindings[s] === nothing
+        binding = gensym()
+        bindings[s] = binding
+        return quote
+            $binding = $e
+            true
+        end
+    else
+        binding = bindings[s]
+        return :($e == $binding)
+    end
+end
+
+"""
+    match_gen_lists!(bindings, exprs, patterns)
+
+Generate Julia code that matches each expression in `exprs` against the
+corresponding pattern in `patterns`, using `match_gen!` for each pair.
+
+# Returns
+A Julia expression that evaluates to `true` iff every pairwise match
 succeeds.
 
-# Assumption
-This helper assumes the caller has already handled any required length
+# Notes
+This function assumes the caller has already handled any necessary length
 checks or splat-related adjustments.
+
 """
 match_gen_lists!(bindings, exprs, patterns) =
     foldr(
@@ -141,7 +160,7 @@ match_gen_lists!(bindings, exprs, patterns) =
 """
     is_splat_arg(bindings, e)
 
-Return `true` if `e` is a splatted pattern variable of the form `x...`
+Return `true` iff `e` is a splatted pattern variable of the form `x...`
 where `x` is a symbol present in `bindings`.
 """
 is_splat_arg(bindings, e) =
@@ -153,17 +172,16 @@ is_splat_arg(bindings, e) =
 """
     match_gen_args!(bindings, e, patterns)
 
-Generate code that checks whether the argument list `e.args` matches the
-pattern list `patterns`.
+Generate Julia code that checks whether the argument list of expression `e`
+matches `patterns`.
 
-# Arguments
-- `bindings`: matcher binding table
-- `e`: a symbol naming an expression whose `.args` field will be matched
-- `patterns`: the list of argument patterns for that expression
 
-# Returns
-A Julia expression that evaluates to `true` if the argument list matches
-and `false` otherwise.
+# Notes
+
+By default, the generated code requires the candidate expression and the
+pattern to have the same number of arguments. If the final pattern is a
+splat pattern, the generated code instead allows additional trailing
+arguments and matches them using tuple splatting.
 """
 function match_gen_args!(bindings, e, patterns)
     if isempty(patterns)
@@ -186,22 +204,6 @@ function match_gen_args!(bindings, e, patterns)
     end
 end
 
-"""
-    match_gen!(bindings, e, pattern::Expr)
-
-Generate matcher code for an expression pattern.
-
-# Matching rule
-An expression matches an `Expr` pattern if:
-- the candidate is also an `Expr`
-- it has the same `head`
-- its argument list matches the pattern's argument list
-"""
-match_gen!(bindings, e, pattern::Expr) =
-    let head = QuoteNode(pattern.head),
-        argmatch = match_gen_args!(bindings, e, pattern.args)
-        :($e isa Expr && $e.head == $head && $argmatch)
-    end
 
 """
     compile_matcher(symbols, pattern)
@@ -336,18 +338,15 @@ function compile_rule(rule, expr, result)
     bindings = Dict{Symbol,Any}(s => nothing for s in symbols)
     test = match_gen!(bindings, expr, pattern)
 
-    # Get list of match symbols and associated declarations
     result_vals = [bindings[s] for s in symbols]
     declarations = filter(x -> x !== nothing, result_vals)
 
-    # Set up local bindings of argument names in code
     binding_code = [:($s = $(r == nothing ? (:nothing) : r))
                     for (s, r) in zip(symbols, result_vals)]
     if expr_name !== nothing
         push!(binding_code, :($expr_name = $expr))
     end
 
-    # Produce the rule
     ismatch = gensym()
     quote
         let $(declarations...)
