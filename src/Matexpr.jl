@@ -81,19 +81,19 @@ Julia code that will later be assembled into a matcher.
 """
 match_gen!(bindings, e, pattern) = :($e == $pattern)
 
-function match_gen!(bindings, e, s::Symbol)
-    if !(s in keys(bindings))
-        qs = QuoteNode(s)
+function match_gen!(bindings, e, pattern::Symbol)
+    if !(pattern in keys(bindings))
+        qs = QuoteNode(pattern)
         return :($e == $qs)
-    elseif bindings[s] === nothing
+    elseif bindings[pattern] === nothing
         binding = gensym()
-        bindings[s] = binding
+        bindings[pattern] = binding
         return quote
             $binding = $e
             true
         end
     else
-        binding = bindings[s]
+        binding = bindings[pattern]
         return :($e == $binding)
     end
 end
@@ -104,44 +104,7 @@ match_gen!(bindings, e, pattern::Expr) =
         :($e isa Expr && $e.head == $head && $argmatch)
     end
 
-"""
-    match_gen!(bindings, e, pattern)
 
-Generate Julia code that checks whether expression `e` matches `pattern`,
-updating `bindings` as pattern variables are bound.
-
-# Returns
-A Julia expression that evaluates to `true` if the match succeeds and
-`false` otherwise.
-
-# Notes
-This function does not perform matching directly. Instead, it generates
-Julia code that can later be assembled into a matcher.
-"""
-match_gen!(bindings, e, pattern) = :($e == $pattern)
-
-match_gen!(bindings, e, pattern::Expr) =
-    let head = QuoteNode(pattern.head),
-        argmatch = match_gen_args!(bindings, e, pattern.args)
-        :($e isa Expr && $e.head == $head && $argmatch)
-    end
-
-function match_gen!(bindings, e, s::Symbol)
-    if !(s in keys(bindings))
-        qs = QuoteNode(s)
-        return :($e == $qs)
-    elseif bindings[s] === nothing
-        binding = gensym()
-        bindings[s] = binding
-        return quote
-            $binding = $e
-            true
-        end
-    else
-        binding = bindings[s]
-        return :($e == $binding)
-    end
-end
 
 """
     match_gen_lists!(bindings, exprs, patterns)
