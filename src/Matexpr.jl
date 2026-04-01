@@ -22,23 +22,40 @@ export filter_line_numbers,
 """
     filter_line_numbers(e)
 
-Return `e` with all `LineNumberNode` entries removed recursively from any
-contained `Expr` trees.
-
-# Returns
-- If `e isa Expr`, a new expression with the same `head` and recursively
-  filtered arguments
-- Otherwise, `e` unchanged
+Return a copy of `e` with all `LineNumberNode` entries removed recursively.
 
 # Examples
-````jldoctest
+```julia
 julia> ex = quote
-    x + y
-end
+           x + y
+       end;
 
-julia> println(filter_line_numbers(ex))
-x + y
-````
+julia> dump(ex)
+Expr
+  head: Symbol block
+  args: Array{Any}((2,))
+    1: LineNumberNode
+      ...
+    2: Expr
+      head: Symbol call
+      args: Array{Any}((3,))
+        1: Symbol +
+        2: Symbol x
+        3: Symbol y
+
+julia> dump(filter_line_numbers(ex))
+Expr
+  head: Symbol block
+  args: Array{Any}((1,))
+    1: Expr
+      head: Symbol call
+      args: Array{Any}((3,))
+        1: Symbol +
+        2: Symbol x
+        3: Symbol y
+```
+
+
 """
 filter_line_numbers(e::Expr) =
     let args = filter(a -> !(a isa LineNumberNode), e.args)
