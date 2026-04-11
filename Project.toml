@@ -2,3 +2,9 @@ name = "Matexpr"
 uuid="4b91f6f4-5d27-4241-98c8-a0e11602fc1b"
 authors = ["Modi Goldstein-Rosenfeld"]
 version = "0.1.0"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
