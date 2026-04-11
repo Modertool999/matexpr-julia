@@ -729,3 +729,166 @@ end
 
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
+
+@testset "build_function_def_with_temps basic structure" begin
+    actual = build_function_def_with_temps(
+        :f,
+        [:x, :y, :z],
+        [(:t1, :(x + y)), (:t2, :(t1 * z))],
+        :t2,
+    )
+
+    expected = :(function f(x, y, z)
+        t1 = x + y
+        t2 = t1 * z
+        return t2
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_temps single temp" begin
+    actual = build_function_def_with_temps(
+        :g,
+        [:A, :B],
+        [(:tmp, :(B' * A'))],
+        :tmp,
+    )
+
+    expected = :(function g(A, B)
+        tmp = B' * A'
+        return tmp
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_temps can be evaluated" begin
+    eval(build_function_def_with_temps(
+        :tmp_chain_xyz,
+        [:x, :y, :z],
+        [(:t1, :(x + y)), (:t2, :(t1 * z))],
+        :t2,
+    ))
+
+    @test tmp_chain_xyz(2, 3, 4) == 20
+end
+
+@testset "lower_once_to_temp leaves simple expressions unchanged" begin
+    temps, result = lower_once_to_temp(:(x + y))
+    @test isempty(temps)
+    @test result == :(x + y)
+end
+
+@testset "lower_once_to_temp introduces temp for complex lhs" begin
+    temps, result = lower_once_to_temp(:((x + y) * z))
+
+    @test length(temps) == 1
+    tmp, rhs = temps[1]
+
+    @test rhs == :(x + y)
+    @test tmp isa Symbol
+    @test result == Expr(:call, :*, tmp, :z)
+end
+
+@testset "lower_once_to_temp does not lower non-call expressions" begin
+    temps, result = lower_once_to_temp(:x)
+    @test isempty(temps)
+    @test result == :x
+end
+
+@testset "lower_once_to_temp does not lower unary calls" begin
+    temps, result = lower_once_to_temp(:(sin(x)))
+    @test isempty(temps)
+    @test result == :(sin(x))
+end
+
+@testset "lower_expr_to_temps leaves atoms unchanged" begin
+    temps, result = lower_expr_to_temps(:x)
+    @test isempty(temps)
+    @test result == :x
+
+    temps, result = lower_expr_to_temps(3)
+    @test isempty(temps)
+    @test result == 3
+end
+
+@testset "lower_expr_to_temps lowers simple binary expression" begin
+    temps, result = lower_expr_to_temps(:(x + y))
+    @test length(temps) == 1
+    tmp, rhs = temps[end]
+
+    @test tmp isa Symbol
+    @test rhs == :(x + y)
+    @test result == tmp
+end
+
+@testset "lower_expr_to_temps lowers nested binary expression" begin
+    temps, result = lower_expr_to_temps(:((x + y) * z))
+
+    @test length(temps) >= 2
+    @test result isa Symbol
+
+    last_tmp, last_rhs = temps[end]
+    @test result == last_tmp
+    @test last_rhs isa Expr
+end
+
+@testset "lower_expr_to_temps lowers both sides of nested product" begin
+    temps, result = lower_expr_to_temps(:((x + y) * (a + b)))
+
+    @test length(temps) >= 3
+    @test result isa Symbol
+
+    last_tmp, last_rhs = temps[end]
+    @test result == last_tmp
+    @test last_rhs isa Expr
+    @test last_rhs.head == :call
+    @test last_rhs.args[1] == :*
+end
+
+@testset "lower_expr_to_temps handles transpose structure" begin
+    temps, result = lower_expr_to_temps(:((A * B)'))
+
+    @test !isempty(temps) || result isa Expr || result isa Symbol
+end
+
+
+@testset "build_function_def_from_lowering simple binary expression" begin
+    actual = build_function_def_from_lowering(:f, [:x, :y], :(x + y))
+
+    @test actual isa Expr
+    @test actual.head == :function
+end
+
+@testset "build_function_def_from_lowering derivative expression" begin
+    actual = build_function_def_from_lowering(:dfdx, [:x, :y], :(deriv(x * y, x)))
+
+    expected = :(function dfdx(x, y)
+        return y
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering nested product creates temps" begin
+    actual = build_function_def_from_lowering(:f, [:x, :y, :a, :b], :((x + y) * (a + b)))
+
+    @test actual isa Expr
+    @test actual.head == :function
+
+    body = actual.args[2]
+    @test body isa Expr
+    @test body.head == :block
+    @test length(body.args) >= 2
+end
+
+@testset "build_function_def_from_lowering can be evaluated for simple derivative" begin
+    eval(build_function_def_from_lowering(:tmp_lowered_dfdx, [:x, :y], :(deriv(x * y, x))))
+    @test tmp_lowered_dfdx(10, 7) == 7
+end
+
+@testset "build_function_def_from_lowering can be evaluated for simple arithmetic" begin
+    eval(build_function_def_from_lowering(:tmp_lowered_add, [:x, :y], :(x + y)))
+    @test tmp_lowered_add(2, 3) == 5
+end
