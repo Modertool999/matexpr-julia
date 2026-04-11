@@ -482,3 +482,50 @@ function build_function_def_from_lowering(name, args, ex)
 
     Expr(:function, call, body)
 end
+
+"""
+    @matexpr function f(args...)
+        expr
+    end
+
+Compile a supported matexpr-style function definition into a staged Julia
+function using the current frontend processing, normalization, and
+lowering pipeline.
+
+# Supported input form
+This macro currently supports only function definitions with:
+- a simple function name
+- positional symbol arguments
+- a single-expression body
+
+# Example
+```julia
+@matexpr function dfdx(x, y)
+    deriv(x * y, x)
+end
+"""
+macro matexpr(def)
+def = filter_line_numbers(def)
+
+@assert def isa Expr && def.head == :function "Expected a function definition"
+
+call = def.args[1]
+body = def.args[2]
+
+@assert call isa Expr && call.head == :call "Expected a simple function signature"
+name = call.args[1]
+args = call.args[2:end]
+
+@assert name isa Symbol "Function name must be a Symbol"
+@assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
+
+# Accept either a single expression body or a one-expression block
+if body isa Expr && body.head == :block
+    body_args = filter(arg -> !(arg isa LineNumberNode), body.args)
+    @assert length(body_args) == 1 "Function body must contain exactly one expression"
+    body = body_args[1]
+end
+
+esc(build_function_def_from_lowering(name, args, body))
+
+end

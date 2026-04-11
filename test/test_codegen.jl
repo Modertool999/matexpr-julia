@@ -391,3 +391,46 @@ end
     eval(build_function_def_from_lowering(:tmp_lowered_add, [:x, :y], :(x + y)))
     @test tmp_lowered_add(2, 3) == 5
 end
+
+
+@testset "@matexpr basic arithmetic" begin
+    ex = @macroexpand @matexpr function addxy(x, y)
+        x + y
+    end
+
+    @test ex isa Expr
+    @test ex.head == :function
+end
+
+@testset "@matexpr derivative function expansion" begin
+    ex = @macroexpand @matexpr function dfdx(x, y)
+        deriv(x * y, x)
+    end
+
+    expected = build_function_def_from_lowering(:dfdx, [:x, :y], :(deriv(x * y, x)))
+    @test filter_line_numbers(ex) == filter_line_numbers(expected)
+end
+
+@testset "@matexpr generated function can be evaluated" begin
+    @eval @matexpr function tmp_matexpr_add(x, y)
+        x + y
+    end
+
+    @test tmp_matexpr_add(2, 3) == 5
+end
+
+@testset "@matexpr derivative function can be evaluated" begin
+    @eval @matexpr function tmp_matexpr_dfdx(x, y)
+        deriv(x * y, x)
+    end
+
+    @test tmp_matexpr_dfdx(10, 7) == 7
+end
+
+@testset "@matexpr transpose-aware derivative function can be evaluated" begin
+    @eval @matexpr function tmp_matexpr_transpose(x, y)
+        deriv((x * y)', x)
+    end
+
+    @test tmp_matexpr_transpose(10, 7) == 7
+end
