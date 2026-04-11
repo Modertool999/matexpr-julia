@@ -1,2 +1,4 @@
 reference/*
 docs/build/
+.DS_STORE
+.gitignore
