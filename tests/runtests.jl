@@ -610,3 +610,43 @@ end
 
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
+
+@testset "build_function_def_with_assignment basic structure" begin
+    actual = build_function_def_with_assignment(:f, [:x, :y], :out, :(x + y))
+    expected = :(function f(x, y)
+        out = x + y
+        return out
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_assignment derivative body" begin
+    actual = build_function_def_with_assignment(:dfdx, [:x, :y], :out, :(deriv(x * y, x)))
+    expected = :(function dfdx(x, y)
+        out = y
+        return out
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_assignment transpose normalization" begin
+    actual = build_function_def_with_assignment(:g, [:A, :B], :out, :((A * B)'))
+    expected = :(function g(A, B)
+        out = B' * A'
+        return out
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_assignment can be evaluated" begin
+    eval(build_function_def_with_assignment(:tmp_add_xy2, [:x, :y], :out, :(x + y)))
+    @test tmp_add_xy2(2, 3) == 5
+end
+
+@testset "build_function_def_with_assignment derivative function can be evaluated" begin
+    eval(build_function_def_with_assignment(:tmp_dfdx_xy2, [:x, :y], :out, :(deriv(x * y, x))))
+    @test tmp_dfdx_xy2(10, 7) == 7
+end

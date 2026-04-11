@@ -26,6 +26,7 @@ export filter_line_numbers,
        build_lambda,
        build_assignment,
        build_function_def,
+       build_function_def_with_assignment,
        @expand_deriv,
        rewrite_bottom_up,
        rewrite_fixpoint,
@@ -867,6 +868,43 @@ function build_function_def(name, args, ex)
     body = compile_matexpr(ex)
     call = Expr(:call, name, args...)
     Expr(:function, call, Expr(:block, :(return $body)))
+
+end
+
+"""
+    build_function_def_with_assignment(name, args, out, ex)
+
+Build a named Julia function definition whose body assigns the compiled
+form of `ex` to `out` and then returns `out`.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `args`: collection of symbols naming the function parameters
+- `out`: symbol naming the local output variable
+- `ex`: raw matexpr-style expression tree
+
+# Returns
+A Julia `Expr` representing a function definition with a multi-statement
+body.
+
+# Examples
+```julia
+build_function_def_with_assignment(:f, [:x, :y], :out, :(x + y))
+
+build_function_def_with_assignment(:dfdx, [:x, :y], :out, :(deriv(x * y, x)))
+
+"""
+function build_function_def_with_assignment(name, args, out, ex)
+    @assert name isa Symbol "Function name must be a Symbol"
+    @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
+    @assert out isa Symbol "Output variable must be a Symbol"
+
+    rhs = compile_matexpr(ex)
+    call = Expr(:call, name, args...)
+    body = Expr(:block,
+                :($out = $rhs),
+                :(return $out))
+    Expr(:function, call, body)
 
 end
 
