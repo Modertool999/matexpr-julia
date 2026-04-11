@@ -562,3 +562,51 @@ end
     f = eval(build_lambda([:x, :y], :(deriv(x * y, x))))
     @test f(10, 7) == 7
 end
+
+@testset "build_assignment basic expressions" begin
+    @test filter_line_numbers(build_assignment(:out, :(x + y))) ==
+          filter_line_numbers(:(out = x + y))
+
+    @test filter_line_numbers(build_assignment(:out, :(x'))) ==
+          filter_line_numbers(:(out = x'))
+end
+
+@testset "build_assignment derivative expressions" begin
+    @test filter_line_numbers(build_assignment(:out, :(deriv(x * y, x)))) ==
+          filter_line_numbers(:(out = y))
+
+    @test filter_line_numbers(build_assignment(:out, :(deriv((x + y)', x)))) ==
+          filter_line_numbers(:(out = 1))
+end
+
+@testset "build_assignment transpose normalization" begin
+    @test filter_line_numbers(build_assignment(:out, :((A * B)'))) ==
+          filter_line_numbers(:(out = B' * A'))
+end
+
+@testset "build_function_def basic structure" begin
+    actual = build_function_def(:f, [:x, :y], :(x + y))
+    expected = :(function f(x, y)
+        return x + y
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def derivative body" begin
+    actual = build_function_def(:dfdx, [:x, :y], :(deriv(x * y, x)))
+    expected = :(function dfdx(x, y)
+        return y
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def transpose normalization" begin
+    actual = build_function_def(:g, [:A, :B], :((A * B)'))
+    expected = :(function g(A, B)
+        return B' * A'
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
