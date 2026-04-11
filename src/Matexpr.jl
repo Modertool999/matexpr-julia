@@ -29,6 +29,8 @@ export @matexpr,
        IdentityStruct,
        lookup_matrix_info,
        infer_matrix_info,
-       normalize_matexpr_structured
+       normalize_matexpr_structured,
+       process_matexpr_structured,
+       build_function_def_from_lowering_structured
 
 end

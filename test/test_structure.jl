@@ -147,3 +147,96 @@ end
     @test normalize_matexpr_structured(env, :(I * (S'))) == :S
     @test normalize_matexpr_structured(env, :(A + (I * S))) == :(A + S)
 end
+
+
+@testset "process_matexpr_structured transpose simplification" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+        :Z => MatrixInfo(3, 3, ZeroStruct()),
+    )
+
+    @test process_matexpr_structured(env, :(S')) == :S
+    @test process_matexpr_structured(env, :(D')) == :D
+    @test process_matexpr_structured(env, :(I')) == :I
+    @test process_matexpr_structured(env, :(Z')) == :Z
+end
+
+@testset "process_matexpr_structured identity and zero simplification" begin
+    env = StructureEnv(
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+        :Z => MatrixInfo(3, 3, ZeroStruct()),
+        :A => MatrixInfo(3, 3, Dense()),
+    )
+
+    @test process_matexpr_structured(env, :(I * A)) == :A
+    @test process_matexpr_structured(env, :(A * I)) == :A
+    @test process_matexpr_structured(env, :(Z + A)) == :A
+    @test process_matexpr_structured(env, :(A + Z)) == :A
+end
+
+@testset "process_matexpr_structured combines ordinary and structured normalization" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+    )
+
+    @test process_matexpr_structured(env, :((S') * 1)) == :S
+    @test process_matexpr_structured(env, :(I * (S'))) == :S
+end
+
+@testset "build_function_def_from_lowering_structured symmetric transpose simplification" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:S], env, :(S'))
+    expected = :(function f(S)
+        return S
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured identity simplification" begin
+    env = StructureEnv(
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+        :A => MatrixInfo(3, 3, Dense()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:I, :A], env, :(I * A))
+    expected = :(function f(I, A)
+        return A
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured zero simplification" begin
+    env = StructureEnv(
+        :Z => MatrixInfo(3, 3, ZeroStruct()),
+        :A => MatrixInfo(3, 3, Dense()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:Z, :A], env, :(A + Z))
+    expected = :(function f(Z, A)
+        return A
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured nested structured simplification" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:S, :I], env, :(I * (S')))
+    expected = :(function f(S, I)
+        return S
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end

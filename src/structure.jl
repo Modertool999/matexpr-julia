@@ -228,3 +228,69 @@ function normalize_matexpr_structured(env::StructureEnv, ex)
 
     rebuilt
 end
+
+
+"""
+    process_matexpr_structured(env, ex)
+
+Process a matexpr-style expression into a normalized symbolic form using
+both the ordinary frontend pipeline and declared matrix structure
+metadata.
+
+# Arguments
+- `env`: structure environment mapping symbols to `MatrixInfo`
+- `ex`: raw matexpr-style expression tree
+
+# Returns
+A normalized expression after:
+1. ordinary matexpr processing
+2. structure-aware normalization using `env`
+
+# Notes
+This is the structured entry point for expressions that depend on fixed
+size, sparsity, or symmetry metadata.
+"""
+function process_matexpr_structured(env::StructureEnv, ex)
+    ex = process_matexpr(ex)
+    normalize_matexpr_structured(env, ex)
+end
+
+
+"""
+    build_function_def_from_lowering_structured(name, args, env, ex)
+
+Build a named Julia function definition by processing a matexpr-style
+expression with declared structure metadata, lowering it into
+temporaries, and emitting a multi-statement function body.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `args`: collection of symbols naming the function parameters
+- `env`: structure environment mapping symbols to `MatrixInfo`
+- `ex`: raw matexpr-style expression tree
+
+# Returns
+A Julia `Expr` representing a function definition whose body consists of:
+- temporary assignments produced by lowering
+- a final `return` of the lowered result
+
+# Notes
+This is the structured analogue of `build_function_def_from_lowering`.
+It uses structure-aware normalization before lowering.
+"""
+function build_function_def_from_lowering_structured(name, args, env::StructureEnv, ex)
+    @assert name isa Symbol "Function name must be a Symbol"
+    @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
+
+    processed = process_matexpr_structured(env, ex)
+    temps, result = lower_expr_to_temps(processed)
+
+    call = Expr(:call, name, args...)
+    temp_block = build_temp_assignments(temps)
+    body = build_block(
+        temp_block.args...,
+        build_return(result)
+    )
+
+    Expr(:function, call, body)
+end
