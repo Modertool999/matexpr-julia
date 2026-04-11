@@ -25,6 +25,10 @@ export filter_line_numbers,
        compile_matexpr,
        build_lambda,
        build_assignment,
+       build_block,
+       build_local_assignment,
+       build_return,
+       build_temp_assignments,
        build_function_def,
        build_function_def_with_assignment,
        @expand_deriv,
@@ -837,8 +841,102 @@ build_assignment(:out, :(deriv(x * y, x)))    # returns :(out = y)
 """
 function build_assignment(lhs, ex)
     rhs = compile_matexpr(ex)
-    :($lhs = $rhs)
+    build_local_assignment(lhs, rhs)
 end
+
+"""
+    build_block(stmts...)
+
+Build a Julia block expression from the given statements.
+
+# Arguments
+- `stmts...`: statements or expressions to place in the block
+
+# Returns
+A Julia `Expr` with head `:block` containing the provided statements in
+order.
+
+# Examples
+```julia
+build_block(:(x = 1), :(y = 2), :(return x + y))
+
+"""
+build_block(stmts...) = Expr(:block, stmts...)
+
+"""
+    build_local_assignment(lhs, rhs)
+
+Build a Julia assignment statement `lhs = rhs`.
+
+# Arguments
+- `lhs`: assignment target
+- `rhs`: right-hand-side expression or value
+
+# Returns
+A Julia `Expr` representing an assignment statement.
+
+# Examples
+```julia
+build_local_assignment(:out, :(x + y))   # returns :(out = x + y)
+
+"""
+build_local_assignment(lhs, rhs) = :($lhs = $rhs)
+
+"""
+build_return(ex)
+
+Build a Julia return statement for ex.
+
+# Arguments
+ex: expression or value to return
+Returns
+
+A Julia Expr representing a return statement.
+
+# Examples
+'''julia
+build_return(:out)      # returns :(return out)
+build_return(:(x + y))  # returns :(return x + y)
+
+"""
+build_return(ex) = :(return $ex)
+
+"""
+    build_temp_assignments(pairs)
+
+Build a block of local assignment statements from a sequence of
+`(lhs, rhs)` pairs.
+
+# Arguments
+- `pairs`: collection of 2-tuples `(lhs, rhs)` where `lhs` is the
+  assignment target and `rhs` is the right-hand-side expression or value
+
+# Returns
+A Julia `Expr` with head `:block` containing one local assignment
+statement per pair, in order.
+
+# Examples
+```julia
+build_temp_assignments([
+    (:t1, :(x + y)),
+    (:t2, :(t1 * z)),
+])
+
+"""
+function build_temp_assignments(pairs)
+    stmts = Any[]
+    for pair in pairs
+    @assert pair isa Tuple && length(pair) == 2 "Each temp assignment must be a 2-tuple"
+    lhs, rhs = pair
+    push!(stmts, build_local_assignment(lhs, rhs))
+    end
+    build_block(stmts...)
+end
+
+
+
+
+
 
 """
     build_function_def(name, args, ex)
@@ -867,7 +965,7 @@ function build_function_def(name, args, ex)
 
     body = compile_matexpr(ex)
     call = Expr(:call, name, args...)
-    Expr(:function, call, Expr(:block, :(return $body)))
+    Expr(:function, call, build_block(build_return(body)))
 
 end
 
@@ -901,11 +999,11 @@ function build_function_def_with_assignment(name, args, out, ex)
 
     rhs = compile_matexpr(ex)
     call = Expr(:call, name, args...)
-    body = Expr(:block,
-                :($out = $rhs),
-                :(return $out))
+    body = build_block(
+        build_local_assignment(out, rhs),
+        build_return(out)
+    )
     Expr(:function, call, body)
-
 end
 
 

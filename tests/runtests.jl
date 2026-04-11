@@ -650,3 +650,82 @@ end
     eval(build_function_def_with_assignment(:tmp_dfdx_xy2, [:x, :y], :out, :(deriv(x * y, x))))
     @test tmp_dfdx_xy2(10, 7) == 7
 end
+
+@testset "build_block basic structure" begin
+    actual = build_block(:(x = 1), :(y = 2), :(return x + y))
+    expected = quote
+        x = 1
+        y = 2
+        return x + y
+    end
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_assignment still works with build_block" begin
+    actual = build_function_def_with_assignment(:f, [:x, :y], :out, :(x + y))
+    expected = :(function f(x, y)
+        out = x + y
+        return out
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_local_assignment basic structure" begin
+    @test filter_line_numbers(build_local_assignment(:out, :(x + y))) ==
+          filter_line_numbers(:(out = x + y))
+end
+
+@testset "build_return basic structure" begin
+    @test filter_line_numbers(build_return(:out)) ==
+          filter_line_numbers(:(return out))
+
+    @test filter_line_numbers(build_return(:(x + y))) ==
+          filter_line_numbers(:(return x + y))
+end
+
+@testset "build_function_def still works with helper builders" begin
+    actual = build_function_def(:f, [:x, :y], :(x + y))
+    expected = :(function f(x, y)
+        return x + y
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_with_assignment still works with helper builders" begin
+    actual = build_function_def_with_assignment(:f, [:x, :y], :out, :(x + y))
+    expected = :(function f(x, y)
+        out = x + y
+        return out
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_temp_assignments basic structure" begin
+    actual = build_temp_assignments([
+        (:t1, :(x + y)),
+        (:t2, :(t1 * z)),
+    ])
+
+    expected = quote
+        t1 = x + y
+        t2 = t1 * z
+    end
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_temp_assignments single assignment" begin
+    actual = build_temp_assignments([
+        (:tmp, :(A' * B)),
+    ])
+
+    expected = quote
+        tmp = A' * B
+    end
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
