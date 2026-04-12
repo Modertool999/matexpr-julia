@@ -102,7 +102,7 @@ end
     deriv(ex, x)
 
 Differentiate `ex` with respect to `x` and normalize the result with
-`normalize_basic`.
+`normalize_matexpr_basic`.
 
 # Arguments
 - `ex`: scalar expression to differentiate
@@ -177,36 +177,5 @@ Before expansion, the input syntax tree is normalized with
 macro expand_deriv(ex)
     ex = filter_line_numbers(ex)
     out = expand_deriv(ex)
-    QuoteNode(out) 
-end
-
-
-"""
-    process_matexpr(ex)
-
-Process a matexpr-style expression into a normalized symbolic form.
-
-# Pipeline
-This function applies the current frontend processing pipeline:
-
-1. remove line-number metadata with `filter_line_numbers`
-2. expand all supported `deriv(f, x)` occurrences
-3. normalize the resulting expression with `normalize_matexpr_basic`
-
-# Arguments
-- `ex`: expression tree to process
-
-# Returns
-A normalized expression suitable for further symbolic manipulation or
-later code generation.
-
-# Notes
-This is intended to be the main entry point for the current expression
-frontend. As the language grows, additional frontend transformations can
-be added here.
-"""
-function process_matexpr(ex)
-    ex = filter_line_numbers(ex)
-    ex = expand_deriv(ex)
-    normalize_matexpr_basic(ex)
+    QuoteNode(out)
 end

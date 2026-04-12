@@ -1,5 +1,6 @@
 using Matexpr: emit_julia,
                compile_matexpr,
+               CompileContext,
                build_lambda,
                build_assignment,
                build_block,
@@ -9,6 +10,8 @@ using Matexpr: emit_julia,
                build_function_def,
                build_function_def_with_assignment,
                build_function_def_with_temps,
+               emit_dense_matvec_fixed,
+               build_dense_matvec_function,
                lower_once_to_temp,
                lower_expr_to_temps,
                build_function_def_from_lowering
@@ -36,6 +39,11 @@ end
 @testset "compile_matexpr transpose normalization" begin
     @test compile_matexpr(:((A * B)')) == :(B' * A')
     @test compile_matexpr(:(((A')') * 1)) == :A
+end
+
+@testset "compile_matexpr with CompileContext" begin
+    ctx = CompileContext()
+    @test compile_matexpr(ctx, :(deriv(x * y, x))) == :y
 end
 
 @testset "build_lambda basic structure" begin
@@ -370,6 +378,16 @@ end
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
 
+@testset "build_function_def_from_lowering with CompileContext" begin
+    ctx = CompileContext()
+    actual = build_function_def_from_lowering(:dfdx_ctx, [:x, :y], ctx, :(deriv(x * y, x)))
+    expected = :(function dfdx_ctx(x, y)
+        return y
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
 @testset "build_function_def_from_lowering nested product creates temps" begin
     actual = build_function_def_from_lowering(:f, [:x, :y, :a, :b], :((x + y) * (a + b)))
 
@@ -390,6 +408,26 @@ end
 @testset "build_function_def_from_lowering can be evaluated for simple arithmetic" begin
     eval(build_function_def_from_lowering(:tmp_lowered_add, [:x, :y], :(x + y)))
     @test tmp_lowered_add(2, 3) == 5
+end
+
+@testset "@declare lowers to matexpr metadata" begin
+    ex = @macroexpand @declare begin
+        input(D, (3, 3), Diagonal())
+        input(x, (3, 1))
+    end
+
+    @test ex isa Expr
+    @test ex.head == :meta
+    @test length(ex.args) == 2
+    @test all(arg isa Expr && arg.head == :matexpr_decl for arg in ex.args)
+    @test ex.args[1] == Expr(:matexpr_decl, :input, :D, :((3, 3)), :(Diagonal()))
+    @test ex.args[2] == Expr(:matexpr_decl, :input, :x, :((3, 1)), :(Dense()))
+end
+
+@testset "@declare rejects unsupported declaration roles" begin
+    @test_throws ErrorException @macroexpand @declare begin
+        output(y, (3, 1))
+    end
 end
 
 
@@ -435,13 +473,79 @@ end
     @test tmp_matexpr_transpose(10, 7) == 7
 end
 
+@testset "@matexpr uses @declare metadata for structured compilation" begin
+    ex = @macroexpand @matexpr function diag_mv_decl(D, x)
+        @declare begin
+            input(D, (3, 3), Diagonal())
+            input(x, (3, 1), Dense())
+        end
+        D * x
+    end
+
+    expected = :(function diag_mv_decl(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(ex) == filter_line_numbers(expected)
+end
+
+@testset "@matexpr declared structured function can be evaluated" begin
+    @eval @matexpr function tmp_declared_diag_mv(D, x)
+        @declare begin
+            input(D, (3, 3), Diagonal())
+            input(x, (3, 1))
+        end
+        D * x
+    end
+
+    D = [2 0 0;
+         0 5 0;
+         0 0 7]
+    x = [10, 20, 30]
+
+    @test tmp_declared_diag_mv(D, x) == [20, 100, 210]
+end
+
+@testset "@matexpr uses @declare metadata for dense matvec specialization" begin
+    ex = @macroexpand @matexpr function dense_mv_decl(A, x)
+        @declare begin
+            input(A, (2, 3), Dense())
+            input(x, (3, 1), Dense())
+        end
+        A * x
+    end
+
+    expected = :(function dense_mv_decl(A, x)
+        return [((A[1, 1] * x[1]) + (A[1, 2] * x[2])) + (A[1, 3] * x[3]),
+                ((A[2, 1] * x[1]) + (A[2, 2] * x[2])) + (A[2, 3] * x[3])]
+    end)
+
+    @test filter_line_numbers(ex) == filter_line_numbers(expected)
+end
+
+@testset "@matexpr declared dense matvec function can be evaluated" begin
+    @eval @matexpr function tmp_declared_dense_mv(A, x)
+        @declare begin
+            input(A, (2, 3), Dense())
+            input(x, (3, 1))
+        end
+        A * x
+    end
+
+    A = [1 2 3;
+         4 5 6]
+    x = [10, 20, 30]
+
+    @test tmp_declared_dense_mv(A, x) == A * x
+end
+
 
 @testset "build_function_def_from_lowering_structured symmetric transpose simplification" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :S => MatrixInfo(3, 3, Symmetric()),
     )
 
-    actual = build_function_def_from_lowering_structured(:f, [:S], env, :(S'))
+    actual = build_function_def_from_lowering_structured(:f, [:S], ctx, :(S'))
     expected = :(function f(S)
         return S
     end)
@@ -450,12 +554,12 @@ end
 end
 
 @testset "build_function_def_from_lowering_structured identity simplification" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :I => MatrixInfo(3, 3, IdentityStruct()),
         :A => MatrixInfo(3, 3, Dense()),
     )
 
-    actual = build_function_def_from_lowering_structured(:f, [:I, :A], env, :(I * A))
+    actual = build_function_def_from_lowering_structured(:f, [:I, :A], ctx, :(I * A))
     expected = :(function f(I, A)
         return A
     end)
@@ -464,12 +568,12 @@ end
 end
 
 @testset "build_function_def_from_lowering_structured zero simplification" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :Z => MatrixInfo(3, 3, ZeroStruct()),
         :A => MatrixInfo(3, 3, Dense()),
     )
 
-    actual = build_function_def_from_lowering_structured(:f, [:Z, :A], env, :(A + Z))
+    actual = build_function_def_from_lowering_structured(:f, [:Z, :A], ctx, :(A + Z))
     expected = :(function f(Z, A)
         return A
     end)
@@ -478,12 +582,12 @@ end
 end
 
 @testset "build_function_def_from_lowering_structured nested structured simplification" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :S => MatrixInfo(3, 3, Symmetric()),
         :I => MatrixInfo(3, 3, IdentityStruct()),
     )
 
-    actual = build_function_def_from_lowering_structured(:f, [:S, :I], env, :(I * (S')))
+    actual = build_function_def_from_lowering_structured(:f, [:S, :I], ctx, :(I * (S')))
     expected = :(function f(S, I)
         return S
     end)
@@ -495,6 +599,34 @@ end
 
 
 
+
+@testset "emit_dense_matvec_fixed basic structure" begin
+    actual = emit_dense_matvec_fixed(:A, :x, 2, 3)
+    expected = :([((A[1,1] * x[1]) + (A[1,2] * x[2])) + (A[1,3] * x[3]),
+                  ((A[2,1] * x[1]) + (A[2,2] * x[2])) + (A[2,3] * x[3])])
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_dense_matvec_function basic structure" begin
+    actual = build_dense_matvec_function(:dense_mv23, :A, :x, 2, 3)
+    expected = :(function dense_mv23(A, x)
+        return [((A[1,1] * x[1]) + (A[1,2] * x[2])) + (A[1,3] * x[3]),
+                ((A[2,1] * x[1]) + (A[2,2] * x[2])) + (A[2,3] * x[3])]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_dense_matvec_function can be evaluated" begin
+    @eval $(build_dense_matvec_function(:tmp_dense_mv23, :A, :x, 2, 3))
+
+    A = [1 2 3;
+         4 5 6]
+    x = [10, 20, 30]
+
+    @test tmp_dense_mv23(A, x) == A * x
+end
 
 @testset "emit_diag_matvec_fixed basic structure" begin
     actual = emit_diag_matvec_fixed(:D, :x, 3)
@@ -524,12 +656,12 @@ end
 end
 
 @testset "build_structured_matvec_function basic structure" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    actual = build_structured_matvec_function(:diag_mv3, env, :(D * x))
+    actual = build_structured_matvec_function(:diag_mv3, ctx, :(D * x))
     expected = :(function diag_mv3(D, x)
         return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
     end)
@@ -537,13 +669,27 @@ end
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
 
-@testset "build_structured_matvec_function can be evaluated" begin
-    env = StructureEnv(
+@testset "build_structured_matvec_function with CompileContext" begin
+    ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    @eval $(build_structured_matvec_function(:tmp_struct_diag_mv3, env, :(D * x)))
+    actual = build_structured_matvec_function(:diag_mv3_ctx, ctx, :(D * x))
+    expected = :(function diag_mv3_ctx(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_matvec_function can be evaluated" begin
+    ctx = ctx_from_infos(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_matvec_function(:tmp_struct_diag_mv3, ctx, :(D * x)))
 
     D = [2 0 0;
          0 5 0;
@@ -554,30 +700,30 @@ end
 end
 
 @testset "build_structured_matvec_function rejects non-diagonal lhs" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :A => MatrixInfo(3, 3, Dense()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    @test_throws ErrorException build_structured_matvec_function(:bad, env, :(A * x))
+    @test_throws ErrorException build_structured_matvec_function(:bad, ctx, :(A * x))
 end
 
 @testset "build_structured_matvec_function rejects wrong rhs shape" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
         :X => MatrixInfo(3, 3, Dense()),
     )
 
-    @test_throws ErrorException build_structured_matvec_function(:bad, env, :(D * X))
+    @test_throws ErrorException build_structured_matvec_function(:bad, ctx, :(D * X))
 end
 
 @testset "build_structured_function dispatches to diagonal matvec specialization" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    actual = build_structured_function(:diag_mv3, [:D, :x], env, :(D * x))
+    actual = build_structured_function(:diag_mv3, [:D, :x], ctx, :(D * x))
     expected = :(function diag_mv3(D, x)
         return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
     end)
@@ -585,13 +731,27 @@ end
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
 
-@testset "build_structured_function specialized function can be evaluated" begin
-    env = StructureEnv(
+@testset "build_structured_function with CompileContext" begin
+    ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    @eval $(build_structured_function(:tmp_struct_dispatch_diag, [:D, :x], env, :(D * x)))
+    actual = build_structured_function(:diag_mv3_ctx2, [:D, :x], ctx, :(D * x))
+    expected = :(function diag_mv3_ctx2(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_function specialized function can be evaluated" begin
+    ctx = ctx_from_infos(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_dispatch_diag, [:D, :x], ctx, :(D * x)))
 
     D = [2 0 0;
          0 5 0;
@@ -601,30 +761,44 @@ end
     @test tmp_struct_dispatch_diag(D, x) == [20, 100, 210]
 end
 
-@testset "build_structured_function falls back for non-specialized expression" begin
-    env = StructureEnv(
-        :A => MatrixInfo(3, 3, Dense()),
+@testset "build_structured_function dispatches to dense matvec specialization" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 3, Dense()),
         :x => MatrixInfo(3, 1, Dense()),
     )
 
-    @eval $(build_structured_function(:tmp_generic_ax, [:A, :x], env, :(A * x)))
+    actual = build_structured_function(:dense_mv23, [:A, :x], ctx, :(A * x))
+    expected = :(function dense_mv23(A, x)
+        return [((A[1,1] * x[1]) + (A[1,2] * x[2])) + (A[1,3] * x[3]),
+                ((A[2,1] * x[1]) + (A[2,2] * x[2])) + (A[2,3] * x[3])]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_function dense matvec specialization can be evaluated" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 3, Dense()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_dense_mv23, [:A, :x], ctx, :(A * x)))
 
     A = [1 2 3;
-         4 5 6;
-         7 8 9]
+         4 5 6]
     x = [10, 20, 30]
 
-    @test tmp_generic_ax(A, x) == A * x
+    @test tmp_struct_dense_mv23(A, x) == A * x
 end
 
 @testset "build_structured_function falls back for transpose-based expression" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :S => MatrixInfo(3, 3, Symmetric()),
         :I => MatrixInfo(3, 3, IdentityStruct()),
     )
 
-    actual = build_structured_function(:f, [:S, :I], env, :(I * (S')))
-    expected = build_function_def_from_lowering_structured(:f, [:S, :I], env, :(I * (S')))
+    actual = build_structured_function(:f, [:S, :I], ctx, :(I * (S')))
+    expected = build_function_def_from_lowering_structured(:f, [:S, :I], ctx, :(I * (S')))
 
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
@@ -665,12 +839,12 @@ end
 end
 
 @testset "build_structured_function dispatches to diagonal-diagonal specialization" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :D1 => MatrixInfo(3, 3, Diagonal()),
         :D2 => MatrixInfo(3, 3, Diagonal()),
     )
 
-    actual = build_structured_function(:diag_mm3, [:D1, :D2], env, :(D1 * D2))
+    actual = build_structured_function(:diag_mm3, [:D1, :D2], ctx, :(D1 * D2))
     expected = :(function diag_mm3(D1, D2)
         return [D1[1,1] * D2[1,1] 0 0;
                 0 D1[2,2] * D2[2,2] 0;
@@ -681,12 +855,12 @@ end
 end
 
 @testset "build_structured_function diagonal-diagonal specialization can be evaluated" begin
-    env = StructureEnv(
+    ctx = ctx_from_infos(
         :D1 => MatrixInfo(3, 3, Diagonal()),
         :D2 => MatrixInfo(3, 3, Diagonal()),
     )
 
-    @eval $(build_structured_function(:tmp_struct_diag_mm3, [:D1, :D2], env, :(D1 * D2)))
+    @eval $(build_structured_function(:tmp_struct_diag_mm3, [:D1, :D2], ctx, :(D1 * D2)))
 
     D1 = [2 0 0;
           0 5 0;

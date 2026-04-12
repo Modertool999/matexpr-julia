@@ -1,4 +1,4 @@
-using Matexpr: differentiate_expr, deriv, expand_deriv, @expand_deriv, process_matexpr
+using Matexpr: differentiate_expr, deriv, expand_deriv, @expand_deriv, process_matexpr, CompileContext
 
 @testset "differentiate_expr literals and variables" begin
     @test differentiate_expr(3, :x) == 0
@@ -162,4 +162,10 @@ end
 @testset "process_matexpr transpose normalization and simplification" begin
     @test process_matexpr(:(((A')') * 1)) == :A
     @test process_matexpr(:((A * B)')) == :(B' * A')
+end
+
+@testset "process_matexpr with CompileContext" begin
+    ctx = CompileContext()
+    @test process_matexpr(ctx, :(deriv(x * y, x))) == :y
+    @test process_matexpr(ctx, :(Q + deriv((x + y)', x))) == :(Q + 1)
 end

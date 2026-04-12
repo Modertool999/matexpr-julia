@@ -1,4 +1,9 @@
-using Documenter, Matexpr 
+import Pkg
+
+Pkg.develop(Pkg.PackageSpec(path = joinpath(@__DIR__, "..")))
+Pkg.instantiate()
+
+using Documenter, Matexpr
 
 makedocs(
     sitename = "Matexpr Documentation",
