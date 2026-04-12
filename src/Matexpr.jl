@@ -5,8 +5,8 @@ include("matcher.jl")
 include("rules.jl")
 include("rewrite.jl")
 include("diff.jl")
-include("codegen.jl")
 include("structure.jl")
+include("codegen.jl")
 
 
 export @matexpr,
@@ -31,6 +31,12 @@ export @matexpr,
        infer_matrix_info,
        normalize_matexpr_structured,
        process_matexpr_structured,
-       build_function_def_from_lowering_structured
+       build_function_def_from_lowering_structured,
+       emit_diag_matvec_fixed,
+       build_diag_matvec_function,
+       build_structured_matvec_function,
+       build_structured_function,
+       emit_diag_diag_fixed,
+       build_diag_diag_function
 
 end

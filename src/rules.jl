@@ -93,11 +93,9 @@ end
 """
     @rule rule_expr
 
-Compile a single rule into a standalone function.
+Compile a single rule into a function takes 
+one expression and returns (did_match, rewritten_expr_or_nothing)
 
-The returned function takes one expression and returns:
-
-    (did_match, rewritten_expr_or_nothing)
 """
 macro rule(r)
     expr, result = gensym(), gensym()

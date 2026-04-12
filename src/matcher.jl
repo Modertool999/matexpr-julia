@@ -65,6 +65,7 @@ match_gen_lists!(bindings, exprs, patterns) =
 
 Return `true` iff `e` is a splatted pattern variable of the form `x...`
 where `x` is a symbol present in `bindings`.
+
 """
 is_splat_arg(bindings, e) =
     e isa Expr &&
@@ -113,18 +114,6 @@ end
 
 Compile a structural pattern into a callable matcher function.
 
-# Arguments
-- `symbols`: a collection of symbols that should be treated as bindable
-  pattern variables
-- `pattern`: the pattern AST to match against
-
-# Returns
-A Julia expression representing a one-argument function. When evaluated,
-that function takes an expression and returns either:
-- `(true, bindings_tuple)` if the match succeeds
-- `(false, nothing)` if the match fails
-
-The tuple of bindings is returned in the same order as `symbols`.
 """
 function compile_matcher(symbols, pattern)
     bindings = Dict{Symbol,Any}(s => nothing for s in symbols)

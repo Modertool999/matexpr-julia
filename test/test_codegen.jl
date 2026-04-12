@@ -434,3 +434,268 @@ end
 
     @test tmp_matexpr_transpose(10, 7) == 7
 end
+
+
+@testset "build_function_def_from_lowering_structured symmetric transpose simplification" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:S], env, :(S'))
+    expected = :(function f(S)
+        return S
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured identity simplification" begin
+    env = StructureEnv(
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+        :A => MatrixInfo(3, 3, Dense()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:I, :A], env, :(I * A))
+    expected = :(function f(I, A)
+        return A
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured zero simplification" begin
+    env = StructureEnv(
+        :Z => MatrixInfo(3, 3, ZeroStruct()),
+        :A => MatrixInfo(3, 3, Dense()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:Z, :A], env, :(A + Z))
+    expected = :(function f(Z, A)
+        return A
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_function_def_from_lowering_structured nested structured simplification" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+    )
+
+    actual = build_function_def_from_lowering_structured(:f, [:S, :I], env, :(I * (S')))
+    expected = :(function f(S, I)
+        return S
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+
+
+
+
+
+@testset "emit_diag_matvec_fixed basic structure" begin
+    actual = emit_diag_matvec_fixed(:D, :x, 3)
+    expected = :([D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]])
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_diag_matvec_function basic structure" begin
+    actual = build_diag_matvec_function(:diag_mv3, :D, :x, 3)
+    expected = :(function diag_mv3(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_diag_matvec_function can be evaluated" begin
+    @eval $(build_diag_matvec_function(:tmp_diag_mv3, :D, :x, 3))
+
+    D = [2 0 0;
+         0 5 0;
+         0 0 7]
+    x = [10, 20, 30]
+
+    @test tmp_diag_mv3(D, x) == [20, 100, 210]
+end
+
+@testset "build_structured_matvec_function basic structure" begin
+    env = StructureEnv(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    actual = build_structured_matvec_function(:diag_mv3, env, :(D * x))
+    expected = :(function diag_mv3(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_matvec_function can be evaluated" begin
+    env = StructureEnv(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_matvec_function(:tmp_struct_diag_mv3, env, :(D * x)))
+
+    D = [2 0 0;
+         0 5 0;
+         0 0 7]
+    x = [10, 20, 30]
+
+    @test tmp_struct_diag_mv3(D, x) == [20, 100, 210]
+end
+
+@testset "build_structured_matvec_function rejects non-diagonal lhs" begin
+    env = StructureEnv(
+        :A => MatrixInfo(3, 3, Dense()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @test_throws ErrorException build_structured_matvec_function(:bad, env, :(A * x))
+end
+
+@testset "build_structured_matvec_function rejects wrong rhs shape" begin
+    env = StructureEnv(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :X => MatrixInfo(3, 3, Dense()),
+    )
+
+    @test_throws ErrorException build_structured_matvec_function(:bad, env, :(D * X))
+end
+
+@testset "build_structured_function dispatches to diagonal matvec specialization" begin
+    env = StructureEnv(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    actual = build_structured_function(:diag_mv3, [:D, :x], env, :(D * x))
+    expected = :(function diag_mv3(D, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_function specialized function can be evaluated" begin
+    env = StructureEnv(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_dispatch_diag, [:D, :x], env, :(D * x)))
+
+    D = [2 0 0;
+         0 5 0;
+         0 0 7]
+    x = [10, 20, 30]
+
+    @test tmp_struct_dispatch_diag(D, x) == [20, 100, 210]
+end
+
+@testset "build_structured_function falls back for non-specialized expression" begin
+    env = StructureEnv(
+        :A => MatrixInfo(3, 3, Dense()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_generic_ax, [:A, :x], env, :(A * x)))
+
+    A = [1 2 3;
+         4 5 6;
+         7 8 9]
+    x = [10, 20, 30]
+
+    @test tmp_generic_ax(A, x) == A * x
+end
+
+@testset "build_structured_function falls back for transpose-based expression" begin
+    env = StructureEnv(
+        :S => MatrixInfo(3, 3, Symmetric()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+    )
+
+    actual = build_structured_function(:f, [:S, :I], env, :(I * (S')))
+    expected = build_function_def_from_lowering_structured(:f, [:S, :I], env, :(I * (S')))
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "emit_diag_diag_fixed basic structure" begin
+    actual = emit_diag_diag_fixed(:D1, :D2, 3)
+    expected = :([D1[1,1] * D2[1,1] 0 0;
+                  0 D1[2,2] * D2[2,2] 0;
+                  0 0 D1[3,3] * D2[3,3]])
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_diag_diag_function basic structure" begin
+    actual = build_diag_diag_function(:diag_mm3, :D1, :D2, 3)
+    expected = :(function diag_mm3(D1, D2)
+        return [D1[1,1] * D2[1,1] 0 0;
+                0 D1[2,2] * D2[2,2] 0;
+                0 0 D1[3,3] * D2[3,3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_diag_diag_function can be evaluated" begin
+    @eval $(build_diag_diag_function(:tmp_diag_mm3, :D1, :D2, 3))
+
+    D1 = [2 0 0;
+          0 5 0;
+          0 0 7]
+    D2 = [11 0 0;
+          0 13 0;
+          0 0 17]
+
+    @test tmp_diag_mm3(D1, D2) == [22 0 0;
+                                   0 65 0;
+                                   0 0 119]
+end
+
+@testset "build_structured_function dispatches to diagonal-diagonal specialization" begin
+    env = StructureEnv(
+        :D1 => MatrixInfo(3, 3, Diagonal()),
+        :D2 => MatrixInfo(3, 3, Diagonal()),
+    )
+
+    actual = build_structured_function(:diag_mm3, [:D1, :D2], env, :(D1 * D2))
+    expected = :(function diag_mm3(D1, D2)
+        return [D1[1,1] * D2[1,1] 0 0;
+                0 D1[2,2] * D2[2,2] 0;
+                0 0 D1[3,3] * D2[3,3]]
+    end)
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_function diagonal-diagonal specialization can be evaluated" begin
+    env = StructureEnv(
+        :D1 => MatrixInfo(3, 3, Diagonal()),
+        :D2 => MatrixInfo(3, 3, Diagonal()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_diag_mm3, [:D1, :D2], env, :(D1 * D2)))
+
+    D1 = [2 0 0;
+          0 5 0;
+          0 0 7]
+    D2 = [11 0 0;
+          0 13 0;
+          0 0 17]
+
+    @test tmp_struct_diag_mm3(D1, D2) == [22 0 0;
+                                          0 65 0;
+                                          0 0 119]
+end

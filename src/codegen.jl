@@ -529,3 +529,282 @@ end
 esc(build_function_def_from_lowering(name, args, body))
 
 end
+
+
+"""
+    build_function_def_from_lowering_structured(name, args, env, ex)
+
+Build a named Julia function definition by processing a matexpr-style
+expression with declared structure metadata, lowering it into
+temporaries, and emitting a multi-statement function body.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `args`: collection of symbols naming the function parameters
+- `env`: structure environment mapping symbols to `MatrixInfo`
+- `ex`: raw matexpr-style expression tree
+
+# Returns
+A Julia `Expr` representing a function definition whose body consists of:
+- temporary assignments produced by lowering
+- a final `return` of the lowered result
+
+# Notes
+This is the structured analogue of `build_function_def_from_lowering`.
+It uses structure-aware normalization before lowering.
+"""
+function build_function_def_from_lowering_structured(name, args, env::StructureEnv, ex)
+    @assert name isa Symbol "Function name must be a Symbol"
+    @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
+
+    processed = process_matexpr_structured(env, ex)
+    temps, result = lower_expr_to_temps(processed)
+
+    call = Expr(:call, name, args...)
+    temp_block = build_temp_assignments(temps)
+    body = build_block(
+        temp_block.args...,
+        build_return(result)
+    )
+
+    Expr(:function, call, body)
+end
+
+
+"""
+    emit_diag_matvec_fixed(D, x, n)
+
+Emit a Julia expression for fixed-size diagonal matrix-vector
+multiplication `D * x` of size `n`, exploiting diagonal sparsity.
+
+# Arguments
+- `D`: symbol naming the diagonal matrix argument
+- `x`: symbol naming the vector argument
+- `n`: positive integer size
+
+# Returns
+A Julia expression representing a vector literal
+
+    [D[1,1] * x[1], D[2,2] * x[2], ..., D[n,n] * x[n]]
+
+# Notes
+This emitter assumes:
+- `D` supports two-dimensional indexing
+- `x` supports one-dimensional indexing
+- the diagonal structure of `D` is known externally
+"""
+function emit_diag_matvec_fixed(D::Symbol, x::Symbol, n::Int)
+    @assert n >= 1 "Matrix size must be positive"
+
+    entries = Any[
+        :($D[$i, $i] * $x[$i]) for i in 1:n
+    ]
+
+    Expr(:vect, entries...)
+end
+
+"""
+    build_diag_matvec_function(name, D, x, n)
+
+Build a named Julia function definition for fixed-size diagonal
+matrix-vector multiplication of size `n`.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `D`: symbol naming the diagonal matrix parameter
+- `x`: symbol naming the vector parameter
+- `n`: positive integer size
+
+# Returns
+A Julia function definition equivalent to
+
+    function name(D, x)
+        return [D[1,1] * x[1], ..., D[n,n] * x[n]]
+    end
+"""
+function build_diag_matvec_function(name::Symbol, D::Symbol, x::Symbol, n::Int)
+    body = emit_diag_matvec_fixed(D, x, n)
+    call = Expr(:call, name, D, x)
+    Expr(:function, call, build_block(build_return(body)))
+end
+
+"""
+    build_structured_matvec_function(name, env, ex)
+
+Build a named Julia function definition for a structured fixed-size
+matrix-vector multiplication expression.
+
+# Supported form
+This first version supports only expressions of the form
+
+    D * x
+
+where:
+- `D` is a symbol declared as `Diagonal()` in `env`
+- `x` is a symbol declared with shape `(n, 1)` in `env`
+- `D` has shape `(n, n)`
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `env`: structure environment mapping symbols to `MatrixInfo`
+- `ex`: matrix expression to compile
+
+# Returns
+A Julia `Expr` representing a specialized function definition.
+
+# Errors
+Throws an error if the expression is not a supported structured
+diagonal-matrix times vector case.
+"""
+function build_structured_matvec_function(name::Symbol, env::StructureEnv, ex)
+    @assert name isa Symbol "Function name must be a Symbol"
+
+    ex isa Expr && ex.head == :call && length(ex.args) == 3 && ex.args[1] == :* ||
+        error("Only binary multiplication expressions of the form D * x are supported")
+
+    D = ex.args[2]
+    x = ex.args[3]
+
+    D isa Symbol || error("Left operand must be a symbol")
+    x isa Symbol || error("Right operand must be a symbol")
+
+    Dinfo = lookup_matrix_info(env, D)
+    xinfo = lookup_matrix_info(env, x)
+
+    Dinfo.structure isa Diagonal ||
+        error("Left operand $D must be declared Diagonal()")
+
+    xinfo.cols == 1 ||
+        error("Right operand $x must be a column vector with shape (n, 1)")
+
+    Dinfo.rows == Dinfo.cols ||
+        error("Diagonal matrix $D must be square")
+
+    Dinfo.cols == xinfo.rows ||
+        error("Dimension mismatch: $D has shape ($(Dinfo.rows), $(Dinfo.cols)) but $x has shape ($(xinfo.rows), $(xinfo.cols))")
+
+    build_diag_matvec_function(name, D, x, Dinfo.rows)
+end
+
+"""
+    build_structured_function(name, args, env, ex)
+
+Build a named Julia function definition for a structured matexpr-style
+expression, using specialized code generation when a supported structured
+case is recognized and otherwise falling back to generic structured
+lowering.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `args`: collection of symbols naming the function parameters
+- `env`: structure environment mapping symbols to `MatrixInfo`
+- `ex`: raw matexpr-style expression tree
+
+# Returns
+A Julia `Expr` representing a function definition.
+
+# Current dispatch behavior
+This first version specializes only the diagonal matrix-vector case
+`D * x`, where:
+- `D` is declared `Diagonal()` in `env`
+- `x` has shape `(n, 1)`
+
+All other supported inputs fall back to
+`build_function_def_from_lowering_structured(name, args, env, ex)`.
+"""
+function build_structured_function(name::Symbol, args, env::StructureEnv, ex)
+    @assert name isa Symbol "Function name must be a Symbol"
+    @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
+
+    if ex isa Expr && ex.head == :call && length(ex.args) == 3 && ex.args[1] == :*
+        lhs = ex.args[2]
+        rhs = ex.args[3]
+
+        if lhs isa Symbol && rhs isa Symbol &&
+           haskey(env, lhs) && haskey(env, rhs)
+
+            lhs_info = lookup_matrix_info(env, lhs)
+            rhs_info = lookup_matrix_info(env, rhs)
+
+            if lhs_info.structure isa Diagonal && rhs_info.structure isa Diagonal
+                lhs_info.rows == lhs_info.cols ||
+                    error("Left diagonal matrix $lhs must be square")
+                rhs_info.rows == rhs_info.cols ||
+                    error("Right diagonal matrix $rhs must be square")
+                lhs_info.cols == rhs_info.rows ||
+                    error("Dimension mismatch in diagonal product")
+
+                return build_diag_diag_function(name, lhs, rhs, lhs_info.rows)
+            end
+
+            if lhs_info.structure isa Diagonal && rhs_info.cols == 1
+                return build_structured_matvec_function(name, env, ex)
+            end
+        end
+    end
+
+    build_function_def_from_lowering_structured(name, args, env, ex)
+end
+
+"""
+    emit_diag_diag_fixed(D1, D2, n)
+
+Emit a Julia expression for fixed-size diagonal matrix multiplication
+`D1 * D2` of size `n`, exploiting diagonal sparsity.
+
+# Arguments
+- `D1`: symbol naming the first diagonal matrix argument
+- `D2`: symbol naming the second diagonal matrix argument
+- `n`: positive integer size
+
+# Returns
+A Julia expression representing a dense matrix literal whose only
+nonzero entries are on the diagonal:
+
+    [D1[1,1] * D2[1,1]   0                ... 0;
+     0                   D1[2,2] * D2[2,2] ... 0;
+     ...
+     0                   0                ... D1[n,n] * D2[n,n]]
+
+# Notes
+This first version emits a full matrix literal for clarity.
+"""
+function emit_diag_diag_fixed(D1::Symbol, D2::Symbol, n::Int)
+    @assert n >= 1 "Matrix size must be positive"
+
+    rows = Any[]
+    for i in 1:n
+        row_entries = Any[]
+        for j in 1:n
+            if i == j
+                push!(row_entries, :($D1[$i, $i] * $D2[$i, $i]))
+            else
+                push!(row_entries, 0)
+            end
+        end
+        push!(rows, Expr(:row, row_entries...))
+    end
+
+    Expr(:vcat, rows...)
+end
+
+"""
+    build_diag_diag_function(name, D1, D2, n)
+
+Build a named Julia function definition for fixed-size diagonal matrix
+multiplication of size `n`.
+
+# Arguments
+- `name`: function name as a `Symbol`
+- `D1`: symbol naming the first diagonal matrix parameter
+- `D2`: symbol naming the second diagonal matrix parameter
+- `n`: positive integer size
+
+# Returns
+A Julia function definition returning the specialized diagonal product.
+"""
+function build_diag_diag_function(name::Symbol, D1::Symbol, D2::Symbol, n::Int)
+    body = emit_diag_diag_fixed(D1, D2, n)
+    call = Expr(:call, name, D1, D2)
+    Expr(:function, call, build_block(build_return(body)))
+end
