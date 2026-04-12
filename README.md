@@ -99,10 +99,10 @@ Run tests:
 julia --project=. test/runtests.jl
 ```
 
-Run the small timing script:
+TODO: Run the small timing script:
 
 ```bash
-julia --project=. bench/mini_bench.jl
+julia --project=. bench/bench.jl
 ```
 
 ## Limitations
