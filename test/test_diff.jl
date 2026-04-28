@@ -40,6 +40,12 @@ end
     @test differentiate_expr(:(exp(x)), :x) == :((exp(x)) * 1)
 end
 
+@testset "differentiate_expr vector and matrix literals" begin
+    @test differentiate_expr(:([x, x * y]), :x) == :([1, (1 * y) + (x * 0)])
+    @test differentiate_expr(:([x y; x * y sin(x)]), :x) ==
+          :([1 0; (1 * y) + (x * 0) (cos(x)) * 1])
+end
+
 @testset "differentiate_expr chain rule" begin
     @test differentiate_expr(:(sin(x * y)), :x) ==
           :((cos(x * y)) * (((1 * y) + (x * 0))))
@@ -59,6 +65,17 @@ end
 @testset "expand_deriv with elementary functions" begin
     @test expand_deriv(:(deriv(sin(x), x))) == :(cos(x))
     @test expand_deriv(:(deriv(exp(x), x))) == :(exp(x))
+end
+
+@testset "expand_deriv with vector derivative variables" begin
+    @test expand_deriv(:(deriv(x * y, [x, y]))) == :([y, x])
+    @test expand_deriv(:(deriv(x * y, [x; y]))) == :([y; x])
+end
+
+@testset "expand_deriv with vector-valued expression" begin
+    @test expand_deriv(:(deriv([x, x * y], x))) == :([1, y])
+    @test expand_deriv(:(deriv([x y; x * y sin(x)], x))) ==
+          :([1 0; y cos(x)])
 end
 
 @testset "expand_deriv inside larger expression" begin

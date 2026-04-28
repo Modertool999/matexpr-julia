@@ -11,6 +11,8 @@ using Matexpr: emit_julia,
                build_function_def_with_assignment,
                build_function_def_with_temps,
                emit_dense_matvec_fixed,
+               emit_dense_matmul_fixed,
+               emit_matrix_binary_fixed,
                build_dense_matvec_function,
                lower_once_to_temp,
                lower_expr_to_temps,
@@ -26,6 +28,11 @@ end
     @test emit_julia(:(sin(x))) == :(sin(x))
 end
 
+@testset "emit_julia vector and matrix literals" begin
+    @test emit_julia(:([x, y])) == :([x, y])
+    @test emit_julia(:([x y; y x])) == :([x y; y x])
+end
+
 @testset "emit_julia transpose" begin
     @test emit_julia(:(A')) == Expr(Symbol("'"), :A)
     @test emit_julia(:((A * B)')) == Expr(Symbol("'"), :(A * B))
@@ -34,6 +41,11 @@ end
 @testset "compile_matexpr basic derivative compilation" begin
     @test compile_matexpr(:(deriv(x * y, x))) == :y
     @test compile_matexpr(:(Q + deriv((x + y)', x))) == :(Q + 1)
+end
+
+@testset "compile_matexpr vector derivative compilation" begin
+    @test compile_matexpr(:(deriv(x * y, [x, y]))) == :([y, x])
+    @test compile_matexpr(:(deriv([x, x * y], x))) == :([1, y])
 end
 
 @testset "compile_matexpr transpose normalization" begin
@@ -430,6 +442,15 @@ end
     end
 end
 
+@testset "@matexpr rejects non-square structured declarations" begin
+    @test_throws ErrorException @macroexpand @matexpr function bad_diag_decl(D)
+        @declare begin
+            input(D, (2, 3), Diagonal())
+        end
+        D
+    end
+end
+
 
 @testset "@matexpr basic arithmetic" begin
     ex = @macroexpand @matexpr function addxy(x, y)
@@ -628,6 +649,38 @@ end
     @test tmp_dense_mv23(A, x) == A * x
 end
 
+@testset "emit_dense_matmul_fixed basic structure" begin
+    actual = emit_dense_matmul_fixed(:A, :B, 2, 3, 2)
+    expected = Expr(
+        :vcat,
+        Expr(
+            :row,
+            :(((A[1,1] * B[1,1]) + (A[1,2] * B[2,1])) + (A[1,3] * B[3,1])),
+            :(((A[1,1] * B[1,2]) + (A[1,2] * B[2,2])) + (A[1,3] * B[3,2])),
+        ),
+        Expr(
+            :row,
+            :(((A[2,1] * B[1,1]) + (A[2,2] * B[2,1])) + (A[2,3] * B[3,1])),
+            :(((A[2,1] * B[1,2]) + (A[2,2] * B[2,2])) + (A[2,3] * B[3,2])),
+        ),
+    )
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "emit_matrix_binary_fixed basic structure" begin
+    actual_add = emit_matrix_binary_fixed(:+, :A, :B, 2, 2)
+    actual_sub = emit_matrix_binary_fixed(:-, :A, :B, 2, 2)
+
+    expected_add = :([A[1,1] + B[1,1] A[1,2] + B[1,2];
+                     A[2,1] + B[2,1] A[2,2] + B[2,2]])
+    expected_sub = :([A[1,1] - B[1,1] A[1,2] - B[1,2];
+                     A[2,1] - B[2,1] A[2,2] - B[2,2]])
+
+    @test filter_line_numbers(actual_add) == filter_line_numbers(expected_add)
+    @test filter_line_numbers(actual_sub) == filter_line_numbers(expected_sub)
+end
+
 @testset "emit_diag_matvec_fixed basic structure" begin
     actual = emit_diag_matvec_fixed(:D, :x, 3)
     expected = :([D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]])
@@ -731,6 +784,24 @@ end
     @test filter_line_numbers(actual) == filter_line_numbers(expected)
 end
 
+@testset "build_structured_function specializes after structured normalization" begin
+    ctx = ctx_from_infos(
+        :D => MatrixInfo(3, 3, Diagonal()),
+        :I => MatrixInfo(3, 3, IdentityStruct()),
+        :x => MatrixInfo(3, 1, Dense()),
+    )
+
+    expected = :(function diag_mv3_normalized(D, I, x)
+        return [D[1,1] * x[1], D[2,2] * x[2], D[3,3] * x[3]]
+    end)
+
+    actual1 = build_structured_function(:diag_mv3_normalized, [:D, :I, :x], ctx, :(D' * x))
+    actual2 = build_structured_function(:diag_mv3_normalized, [:D, :I, :x], ctx, :(I * (D * x)))
+
+    @test filter_line_numbers(actual1) == filter_line_numbers(expected)
+    @test filter_line_numbers(actual2) == filter_line_numbers(expected)
+end
+
 @testset "build_structured_function with CompileContext" begin
     ctx = ctx_from_infos(
         :D => MatrixInfo(3, 3, Diagonal()),
@@ -789,6 +860,69 @@ end
     x = [10, 20, 30]
 
     @test tmp_struct_dense_mv23(A, x) == A * x
+end
+
+@testset "build_structured_function dispatches to dense matmul specialization" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 3, Dense()),
+        :B => MatrixInfo(3, 2, Dense()),
+    )
+
+    actual = build_structured_function(:dense_mm232, [:A, :B], ctx, :(A * B))
+    expected_body = emit_dense_matmul_fixed(:A, :B, 2, 3, 2)
+    expected = Expr(:function, Expr(:call, :dense_mm232, :A, :B), build_block(build_return(expected_body)))
+
+    @test filter_line_numbers(actual) == filter_line_numbers(expected)
+end
+
+@testset "build_structured_function dense matmul specialization can be evaluated" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 3, Dense()),
+        :B => MatrixInfo(3, 2, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_dense_mm232, [:A, :B], ctx, :(A * B)))
+
+    A = [1 2 3;
+         4 5 6]
+    B = [10 20;
+         30 40;
+         50 60]
+
+    @test tmp_struct_dense_mm232(A, B) == A * B
+end
+
+@testset "build_structured_function matrix add/sub specialization can be evaluated" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 2, Dense()),
+        :B => MatrixInfo(2, 2, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_add22, [:A, :B], ctx, :(A + B)))
+    @eval $(build_structured_function(:tmp_struct_sub22, [:A, :B], ctx, :(A - B)))
+
+    A = [1 2;
+         3 4]
+    B = [10 20;
+         30 40]
+
+    @test tmp_struct_add22(A, B) == A + B
+    @test tmp_struct_sub22(A, B) == A - B
+end
+
+@testset "build_structured_function transpose-aware matvec specialization can be evaluated" begin
+    ctx = ctx_from_infos(
+        :A => MatrixInfo(2, 3, Dense()),
+        :x => MatrixInfo(2, 1, Dense()),
+    )
+
+    @eval $(build_structured_function(:tmp_struct_transpose_mv, [:A, :x], ctx, :(A' * x)))
+
+    A = [1 2 3;
+         4 5 6]
+    x = [10, 20]
+
+    @test tmp_struct_transpose_mv(A, x) == A' * x
 end
 
 @testset "build_structured_function falls back for transpose-based expression" begin

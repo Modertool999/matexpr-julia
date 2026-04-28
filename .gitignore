@@ -1,4 +1,5 @@
 reference/*
 docs/build/
-.DS_STORE
-.gitignore
+/Manifest.toml
+bench/Manifest.toml
+.DS_Store

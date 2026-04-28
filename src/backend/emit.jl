@@ -34,6 +34,9 @@ function emit_julia(ex)
         @assert length(ex.args) == 1 "Transpose expression should have one argument"
         inner = emit_julia(ex.args[1])
         return Expr(Symbol("'"), inner)
+    elseif ex.head == :vect || ex.head == :row || ex.head == :vcat
+        emitted_args = [emit_julia(arg) for arg in ex.args]
+        return Expr(ex.head, emitted_args...)
     elseif ex.head == :call
         emitted_args = [emit_julia(arg) for arg in ex.args]
         return Expr(:call, emitted_args...)

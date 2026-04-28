@@ -6,6 +6,20 @@ struct Diagonal <: MatrixStructure end
 struct ZeroStruct <: MatrixStructure end
 struct IdentityStruct <: MatrixStructure end
 
+_requires_square_declaration(structure::MatrixStructure) =
+    structure isa Symmetric ||
+    structure isa Diagonal ||
+    structure isa IdentityStruct
+
+function _validate_declaration_shape(rows::Int, cols::Int, structure::MatrixStructure)
+    rows >= 1 || error("Matrix row dimension must be positive")
+    cols >= 1 || error("Matrix column dimension must be positive")
+
+    if _requires_square_declaration(structure) && rows != cols
+        error("Declared $(typeof(structure)) matrix must be square; got shape ($rows, $cols)")
+    end
+end
+
 """
     MatrixInfo(rows, cols, structure)
 
@@ -17,6 +31,18 @@ struct MatrixInfo
     structure::MatrixStructure
 end
 
+_is_square(info::MatrixInfo) = info.rows == info.cols
+
+_is_self_transpose(info::MatrixInfo) =
+    _is_square(info) &&
+    (info.structure isa Symmetric ||
+     info.structure isa Diagonal ||
+     info.structure isa IdentityStruct ||
+     info.structure isa ZeroStruct)
+
+_same_shape(lhs::MatrixInfo, rhs::MatrixInfo) =
+    lhs.rows == rhs.rows && lhs.cols == rhs.cols
+
 """
     DeclarationInfo(rows, cols, structure, role)
 
@@ -27,6 +53,16 @@ struct DeclarationInfo
     cols::Int
     structure::MatrixStructure
     role::Symbol
+
+    function DeclarationInfo(
+        rows::Int,
+        cols::Int,
+        structure::MatrixStructure,
+        role::Symbol,
+    )
+        _validate_declaration_shape(rows, cols, structure)
+        new(rows, cols, structure, role)
+    end
 end
 
 const DeclarationEnv = Dict{Symbol, DeclarationInfo}
@@ -152,11 +188,7 @@ function _structured_pass(ctx::CompileContext, ex; simplify::Bool)
         info = _transpose_matrix_info(inner_info)
         rebuilt = Expr(Symbol("'"), inner_ex)
 
-        if simplify &&
-           (inner_info.structure isa Symmetric ||
-            inner_info.structure isa Diagonal ||
-            inner_info.structure isa IdentityStruct ||
-            inner_info.structure isa ZeroStruct)
+        if simplify && _is_self_transpose(inner_info)
             return inner_ex, inner_info
         end
 
@@ -172,11 +204,11 @@ function _structured_pass(ctx::CompileContext, ex; simplify::Bool)
     rhs_ex, rhs_info = _structured_pass(ctx, ex.args[3]; simplify = simplify)
     rebuilt = Expr(:call, op, lhs_ex, rhs_ex)
 
-    if op == :+
+    if op == :+ || op == :-
         info = _infer_add_matrix_info(lhs_info, rhs_info)
 
         if simplify
-            if lhs_info.structure isa ZeroStruct
+            if op == :+ && lhs_info.structure isa ZeroStruct
                 return rhs_ex, rhs_info
             elseif rhs_info.structure isa ZeroStruct
                 return lhs_ex, lhs_info
@@ -189,13 +221,13 @@ function _structured_pass(ctx::CompileContext, ex; simplify::Bool)
         info = _infer_mul_matrix_info(lhs_info, rhs_info)
 
         if simplify
-            if lhs_info.structure isa IdentityStruct
+            if lhs_info.structure isa IdentityStruct && _is_square(lhs_info)
                 return rhs_ex, rhs_info
-            elseif rhs_info.structure isa IdentityStruct
+            elseif rhs_info.structure isa IdentityStruct && _is_square(rhs_info)
                 return lhs_ex, lhs_info
-            elseif lhs_info.structure isa ZeroStruct
+            elseif lhs_info.structure isa ZeroStruct && _same_shape(lhs_info, info)
                 return lhs_ex, lhs_info
-            elseif rhs_info.structure isa ZeroStruct
+            elseif rhs_info.structure isa ZeroStruct && _same_shape(rhs_info, info)
                 return rhs_ex, rhs_info
             end
         end
@@ -227,7 +259,7 @@ A `MatrixInfo` describing the inferred shape and coarse structure of
 This first version supports:
 - matrix symbols
 - transpose expressions `A'`
-- binary addition `A + B`
+- binary addition/subtraction `A + B` and `A - B`
 - binary multiplication `A * B`
 
 # Errors
@@ -258,13 +290,14 @@ A structurally simplified expression.
 
 # Current simplifications
 This first version applies:
-- `u' => u` when `u` is symmetric, diagonal, identity, or zero
+- `u' => u` when `u` is square symmetric, diagonal, identity, or zero
 - `I * u => u`
 - `u * I => u`
-- `Z * u => Z`
-- `u * Z => Z`
+- `Z * u => Z` when `Z` already has the product shape
+- `u * Z => Z` when `Z` already has the product shape
 - `Z + u => u`
 - `u + Z => u`
+- `u - Z => u`
 
 where the relevant structural facts are inferred from `ctx`.
 

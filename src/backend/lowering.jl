@@ -138,6 +138,19 @@ function lower_expr_to_temps(ex)
     end
 end
 
+function _build_function_def_from_processed(name, args, processed)
+    temps, result = lower_expr_to_temps(processed)
+
+    call = Expr(:call, name, args...)
+    temp_block = build_temp_assignments(temps)
+    body = build_block(
+        temp_block.args...,
+        build_return(result)
+    )
+
+    Expr(:function, call, body)
+end
+
 """
     build_function_def_from_lowering(name, args, ex)
 
@@ -175,16 +188,7 @@ function build_function_def_from_lowering(name, args, ctx::CompileContext, ex)
     @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
 
     processed = process_matexpr(ctx, ex)
-    temps, result = lower_expr_to_temps(processed)
-
-    call = Expr(:call, name, args...)
-    temp_block = build_temp_assignments(temps)
-    body = build_block(
-        temp_block.args...,
-        build_return(result)
-    )
-
-    Expr(:function, call, body)
+    _build_function_def_from_processed(name, args, processed)
 end
 
 """
@@ -214,14 +218,5 @@ function build_function_def_from_lowering_structured(name, args, ctx::CompileCon
     @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
 
     processed = process_matexpr_structured(ctx, ex)
-    temps, result = lower_expr_to_temps(processed)
-
-    call = Expr(:call, name, args...)
-    temp_block = build_temp_assignments(temps)
-    body = build_block(
-        temp_block.args...,
-        build_return(result)
-    )
-
-    Expr(:function, call, body)
+    _build_function_def_from_processed(name, args, processed)
 end

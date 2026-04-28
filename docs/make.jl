@@ -10,7 +10,7 @@ makedocs(
     format = Documenter.HTML(),
     pages = [
         "Home" => "index.md",
-        
+        "Writeup" => "design.md",
     ]
 )
 

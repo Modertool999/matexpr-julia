@@ -12,6 +12,7 @@ This function handles:
 - binary `-`
 - binary `*`
 - binary `/`
+- vector and matrix literals, differentiated elementwise
 
 # Arguments
 - `ex`: expression to differentiate
@@ -38,6 +39,10 @@ function differentiate_expr(ex, x::Symbol)
         @assert length(ex.args) == 1 "Transpose expression should have one argument"
         u = ex.args[1]
         return :($(differentiate_expr(u, x))')
+    end
+
+    if ex.head == :vect || ex.head == :row || ex.head == :vcat
+        return Expr(ex.head, [differentiate_expr(arg, x) for arg in ex.args]...)
     end
 
     if ex.head != :call
@@ -113,6 +118,21 @@ A normalized symbolic derivative of `ex` with respect to `x`.
 """
 deriv(ex, x::Symbol) = normalize_matexpr_basic(differentiate_expr(ex, x))
 
+function _deriv_wrt_spec(f, x::Symbol)
+    deriv(f, x)
+end
+
+function _deriv_wrt_spec(f, spec::Expr)
+    if spec.head == :vect || spec.head == :row || spec.head == :vcat
+        return Expr(spec.head, [_deriv_wrt_spec(f, arg) for arg in spec.args]...)
+    end
+
+    error("Unsupported derivative variable specification: $spec")
+end
+
+_deriv_wrt_spec(f, spec) =
+    error("Unsupported derivative variable specification: $spec")
+
 """
     expand_deriv(ex)
 
@@ -147,12 +167,11 @@ function expand_deriv(ex)
 
     if rebuilt.head == :call &&
        length(rebuilt.args) == 3 &&
-       rebuilt.args[1] == :deriv &&
-       rebuilt.args[3] isa Symbol
+       rebuilt.args[1] == :deriv
 
         f = rebuilt.args[2]
         x = rebuilt.args[3]
-        return deriv(f, x)
+        return _deriv_wrt_spec(f, x)
     end
 
     rebuilt
