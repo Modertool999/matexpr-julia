@@ -16,6 +16,6 @@ makedocs(
 
 
 deploydocs(
-    repo = "github.com/Modertool999/matexpr-julia.git",
+    repo = "github.com/Modertool999/matexpr_julia.git",
     devbranch = "main",
 )
