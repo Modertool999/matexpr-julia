@@ -7,8 +7,9 @@ include("core/rules.jl")
 include("core/rewrite.jl")
 
 # Frontend analysis and normalization
-include("frontend/diff.jl")
 include("analysis/structure.jl")
+include("frontend/diff.jl")
+include("frontend/error_analysis.jl")
 include("frontend/pipeline.jl")
 
 # Backend lowering and code generation
@@ -25,7 +26,10 @@ export @matexpr, @declare,
        @match, @rule, @rules,
        rewrite_bottom_up, rewrite_fixpoint,
        normalize_basic, normalize_matexpr_basic,
-       differentiate_expr, deriv, expand_deriv, @expand_deriv,
+       differentiate_expr, differentiate_expr_backward,
+       selected_derivative_mode,
+       deriv, expand_deriv, @expand_deriv,
+       error_bound, expand_error_analysis, @expand_error_analysis,
        process_matexpr,
        emit_julia, compile_matexpr,
        build_lambda,

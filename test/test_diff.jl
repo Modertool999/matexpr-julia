@@ -1,4 +1,18 @@
-using Matexpr: differentiate_expr, deriv, expand_deriv, @expand_deriv, process_matexpr, CompileContext
+using Matexpr: differentiate_expr,
+               differentiate_expr_backward,
+               selected_derivative_mode,
+               deriv,
+               expand_deriv,
+               @expand_deriv,
+               error_bound,
+               expand_error_analysis,
+               @expand_error_analysis,
+               process_matexpr,
+               CompileContext,
+               DeclarationEnv,
+               DeclarationInfo,
+               Dense,
+               @matexpr
 
 @testset "differentiate_expr literals and variables" begin
     @test differentiate_expr(3, :x) == 0
@@ -70,6 +84,31 @@ end
 @testset "expand_deriv with vector derivative variables" begin
     @test expand_deriv(:(deriv(x * y, [x, y]))) == :([y, x])
     @test expand_deriv(:(deriv(x * y, [x; y]))) == :([y; x])
+end
+
+@testset "automatic derivative mode selection" begin
+    @test selected_derivative_mode(:(x * y), :x) == :forward
+    @test selected_derivative_mode(:(x * y), :([x, y])) == :backward
+    @test selected_derivative_mode(:([x, x * y]), :x) == :forward
+end
+
+@testset "backward differentiation for scalar-output gradients" begin
+    ctx = CompileContext()
+    grads = differentiate_expr_backward(ctx, :(x * y + sin(x)), [:x, :y])
+
+    @test grads[:x] == :(y + cos(x))
+    @test grads[:y] == :x
+    @test expand_deriv(:(deriv(x * y + sin(x), [x, y]))) == :([y + cos(x), x])
+end
+
+@testset "context-aware derivative mode uses matrix sizes" begin
+    ctx = CompileContext(DeclarationEnv(
+        :c => DeclarationInfo(3, 1, Dense(), :input),
+        :x => DeclarationInfo(3, 1, Dense(), :input),
+    ))
+
+    @test selected_derivative_mode(ctx, :((c') * x), :x) == :backward
+    @test process_matexpr(ctx, :(deriv((c') * x, x))) == :c
 end
 
 @testset "expand_deriv with vector-valued expression" begin
@@ -185,4 +224,26 @@ end
     ctx = CompileContext()
     @test process_matexpr(ctx, :(deriv(x * y, x))) == :y
     @test process_matexpr(ctx, :(Q + deriv((x + y)', x))) == :(Q + 1)
+end
+
+@testset "error_bound first-order roundoff expressions" begin
+    @test error_bound(:(x + y)) == :(eps * abs(x + y))
+    @test error_bound(:(x - y)) == :(eps * abs(x - y))
+    @test error_bound(:(x * y)) == :(eps * abs(x * y))
+    @test error_bound(:(sin(x))) == :(eps * abs(sin(x)))
+end
+
+@testset "expand_error_analysis rewrites error_bound calls" begin
+    @test expand_error_analysis(:(error_bound(x + y))) == :(eps * abs(x + y))
+    @test expand_error_analysis(:(error_bound(x + y, u))) == :(u * abs(x + y))
+    @test (@expand_error_analysis error_bound(x * y, u)) == :(u * abs(x * y))
+end
+
+@testset "process_matexpr expands error analysis" begin
+    @test process_matexpr(:(error_bound(x + y, u))) == :(u * abs(x + y))
+
+    @eval @matexpr function tmp_error_sum(x, y, u)
+        error_bound(x + y, u)
+    end
+    @test tmp_error_sum(2.0, -5.0, 1e-16) == 3.0e-16
 end
