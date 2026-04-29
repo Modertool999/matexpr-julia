@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Usage · Matexpr Documentation</title><meta name="title" content="Usage · Matexpr Documentation"/><meta property="og:title" content="Usage · Matexpr Documentation"/><meta property="twitter:title" content="Usage · Matexpr Documentation"/><meta name="description" content="Documentation for Matexpr Documentation."/><meta property="og:description" content="Documentation for Matexpr Documentation."/><meta property="twitter:description" content="Documentation for Matexpr Documentation."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Matexpr Documentation</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Usage</a><ul class="internal"><li><a class="tocitem" href="#Basic-Function"><span>Basic Function</span></a></li><li><a class="tocitem" href="#Declared-Matrix-Inputs"><span>Declared Matrix Inputs</span></a></li><li><a class="tocitem" href="#Structured-Matrices"><span>Structured Matrices</span></a></li><li><a class="tocitem" href="#Differentiation"><span>Differentiation</span></a></li><li><a class="tocitem" href="#Inspecting-Generated-Code"><span>Inspecting Generated Code</span></a></li></ul></li><li><a class="tocitem" href="../supported/">Supported Subset</a></li><li><a class="tocitem" href="../api/">API</a></li><li><a class="tocitem" href="../design/">Writeup</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Usage</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Usage</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Modertool999/matexpr-julia" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Modertool999/matexpr-julia/blob/main/docs/src/usage.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Usage-Guide"><a class="docs-heading-anchor" href="#Usage-Guide">Usage Guide</a><a id="Usage-Guide-1"></a><a class="docs-heading-anchor-permalink" href="#Usage-Guide" title="Permalink"></a></h1><p>The main interface is <code>@matexpr</code>. Write a normal Julia function, optionally add an <code>@declare</code> block, and put one supported expression at the end of the body.</p><h2 id="Basic-Function"><a class="docs-heading-anchor" href="#Basic-Function">Basic Function</a><a id="Basic-Function-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Function" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Matexpr
+
+@eval @matexpr function addxy(x, y)
+    x + y
+end
+
+addxy(2, 3)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">5</code></pre><p>Without declarations, Matexpr still runs the frontend pipeline and emits normal Julia code.</p><h2 id="Declared-Matrix-Inputs"><a class="docs-heading-anchor" href="#Declared-Matrix-Inputs">Declared Matrix Inputs</a><a id="Declared-Matrix-Inputs-1"></a><a class="docs-heading-anchor-permalink" href="#Declared-Matrix-Inputs" title="Permalink"></a></h2><p>Declarations give Matexpr shape and structure metadata:</p><pre><code class="language-julia hljs">@eval @matexpr function dense_mv(A, x)
+    @declare begin
+        input(A, (2, 3), Dense())
+        input(x, (3, 1), Dense())
+    end
+    A * x
+end
+
+dense_mv([1 2 3; 4 5 6], [10, 20, 30])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">2-element Vector{Int64}:
+ 140
+ 320</code></pre><p>The declaration form is:</p><pre><code class="language-julia hljs">input(name, dims[, structure])</code></pre><p><code>dims</code> must be an integer literal or a two-entry tuple of integer literals. When no structure is given, <code>Dense()</code> is used.</p><h2 id="Structured-Matrices"><a class="docs-heading-anchor" href="#Structured-Matrices">Structured Matrices</a><a id="Structured-Matrices-1"></a><a class="docs-heading-anchor-permalink" href="#Structured-Matrices" title="Permalink"></a></h2><p>Use structure tags when the compiler should take advantage of matrix metadata:</p><pre><code class="language-julia hljs">@eval @matexpr function diag_mv(D, x)
+    @declare begin
+        input(D, (3, 3), Diagonal())
+        input(x, (3, 1), Dense())
+    end
+    D * x
+end
+
+diag_mv([2 0 0; 0 5 0; 0 0 7], [10, 20, 30])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3-element Vector{Int64}:
+  20
+ 100
+ 210</code></pre><p>Supported structure tags are:</p><ul><li><code>Dense()</code></li><li><code>Symmetric()</code></li><li><code>Diagonal()</code></li><li><code>ZeroStruct()</code></li><li><code>IdentityStruct()</code></li></ul><p><code>Symmetric()</code>, <code>Diagonal()</code>, and <code>IdentityStruct()</code> declarations must be square.</p><h2 id="Differentiation"><a class="docs-heading-anchor" href="#Differentiation">Differentiation</a><a id="Differentiation-1"></a><a class="docs-heading-anchor-permalink" href="#Differentiation" title="Permalink"></a></h2><p>Users write <code>deriv(...)</code>; Matexpr chooses the differentiation strategy internally.</p><pre><code class="language-julia hljs">@eval @matexpr function scalar_deriv(x, y)
+    deriv(x * y + sin(x), x)
+end
+
+scalar_deriv(2.0, 3.0)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">2.5838531634528574</code></pre><p>For a scalar output with a larger derivative input, Matexpr uses symbolic backward accumulation:</p><pre><code class="language-julia hljs">@eval @matexpr function dot_grad(c, x)
+    @declare begin
+        input(c, (3, 1), Dense())
+        input(x, (3, 1), Dense())
+    end
+    deriv(c&#39; * x, x)
+end
+
+dot_grad([1, 2, 3], [4, 5, 6])</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3-element Vector{Int64}:
+ 1
+ 2
+ 3</code></pre><p>For vector-valued outputs, it keeps the forward symbolic path:</p><pre><code class="language-julia hljs">@eval @matexpr function vector_deriv(x, y)
+    deriv([x, x * y], x)
+end
+
+vector_deriv(2, 3)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">2-element Vector{Int64}:
+ 1
+ 3</code></pre><h2 id="Inspecting-Generated-Code"><a class="docs-heading-anchor" href="#Inspecting-Generated-Code">Inspecting Generated Code</a><a id="Inspecting-Generated-Code-1"></a><a class="docs-heading-anchor-permalink" href="#Inspecting-Generated-Code" title="Permalink"></a></h2><p>Use <code>@macroexpand</code> to see the function definition produced by <code>@matexpr</code>:</p><pre><code class="language-julia hljs">ex = @macroexpand @matexpr function inspect_mv(A, x)
+    @declare begin
+        input(A, (2, 2), Dense())
+        input(x, (2, 1), Dense())
+    end
+    A * x
+end
+
+filter_line_numbers(ex)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">:(function inspect_mv(A, x)
+      return [A[1, 1] * x[1] + A[1, 2] * x[2], A[2, 1] * x[1] + A[2, 2] * x[2]]
+  end)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../supported/">Supported Subset »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 29 April 2026 00:07">Wednesday 29 April 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
