@@ -4,15 +4,11 @@ using Matexpr: differentiate_expr,
                deriv,
                expand_deriv,
                @expand_deriv,
-               error_bound,
-               expand_error_analysis,
-               @expand_error_analysis,
                process_matexpr,
                CompileContext,
                DeclarationEnv,
                DeclarationInfo,
-               Dense,
-               @matexpr
+               Dense
 
 @testset "differentiate_expr literals and variables" begin
     @test differentiate_expr(3, :x) == 0
@@ -224,26 +220,4 @@ end
     ctx = CompileContext()
     @test process_matexpr(ctx, :(deriv(x * y, x))) == :y
     @test process_matexpr(ctx, :(Q + deriv((x + y)', x))) == :(Q + 1)
-end
-
-@testset "error_bound first-order roundoff expressions" begin
-    @test error_bound(:(x + y)) == :(eps * abs(x + y))
-    @test error_bound(:(x - y)) == :(eps * abs(x - y))
-    @test error_bound(:(x * y)) == :(eps * abs(x * y))
-    @test error_bound(:(sin(x))) == :(eps * abs(sin(x)))
-end
-
-@testset "expand_error_analysis rewrites error_bound calls" begin
-    @test expand_error_analysis(:(error_bound(x + y))) == :(eps * abs(x + y))
-    @test expand_error_analysis(:(error_bound(x + y, u))) == :(u * abs(x + y))
-    @test (@expand_error_analysis error_bound(x * y, u)) == :(u * abs(x * y))
-end
-
-@testset "process_matexpr expands error analysis" begin
-    @test process_matexpr(:(error_bound(x + y, u))) == :(u * abs(x + y))
-
-    @eval @matexpr function tmp_error_sum(x, y, u)
-        error_bound(x + y, u)
-    end
-    @test tmp_error_sum(2.0, -5.0, 1e-16) == 3.0e-16
 end

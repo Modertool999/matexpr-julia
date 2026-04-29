@@ -8,8 +8,8 @@ specialized Julia function.
 This repository is intentionally a focused compiler prototype. It is not trying
 to recreate the full historical C tool; instead, it demonstrates the complete
 path from user syntax to symbolic processing, automatic derivative-mode
-selection, first-order error analysis, structure analysis, specialized code
-generation, tests, benchmarks, and documentation.
+selection, structure analysis, specialized code generation, tests, benchmarks,
+and documentation.
 
 ## Current Scope
 
@@ -17,9 +17,8 @@ The implemented subset includes:
 
 - AST pattern matching and rewrite rules
 - symbolic differentiation with automatic forward/backward mode selection
-- first-order symbolic floating-point error analysis
 - a frontend pipeline for `deriv(...)`, transpose normalization, and
-  algebraic/error-analysis cleanup
+  algebraic cleanup
 - declaration parsing with `@declare`
 - structure-aware simplification for `+`, `-`, `*`, and transpose
 - fixed-size specialization for:
@@ -71,14 +70,6 @@ declared input/output sizes:
 end
 ```
 
-For first-order roundoff analysis:
-
-```julia
-@matexpr function add_error(x, y, u)
-    error_bound(x + y, u)
-end
-```
-
 ## Supported `@declare` Subset
 
 This mini version currently supports only:
@@ -107,7 +98,6 @@ General frontend:
 - `sin`, `cos`, `exp`
 - Julia vector and matrix literals
 - `deriv(f, x)` and `deriv(f, [x, y])`
-- `error_bound(f)` and `error_bound(f, unit_roundoff)`
 
 Structured analysis:
 
@@ -155,7 +145,7 @@ The most useful narrative writeup is
 - a mapping from project requirements to implementation files
 - the macro and compiler pipeline design
 - symbolic differentiation and structure-analysis details
-- backward AD mode selection and first-order error analysis
+- backward AD mode selection
 - implementation challenges and tradeoffs
 - benchmark results and an explanation of why some kernels win while others do
   not
@@ -171,4 +161,3 @@ Not implemented in this mini version:
 - output/inout/scratch declaration semantics
 - general matrix specialization beyond the small fixed-size cases above
 - full matrix-calculus differentiation
-- higher-order or probabilistic floating-point error analysis

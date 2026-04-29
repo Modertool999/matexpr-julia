@@ -6,9 +6,9 @@ DocTestSetup = :(using Matexpr)
 # Matexpr.jl
 
 `Matexpr.jl` is a small compiler pipeline for matrix expressions in Julia. It
-parses a Julia function definition, expands symbolic derivatives, estimates
-first-order roundoff error, consults declared shape and structure metadata, and
-emits specialized Julia code for a bounded set of fixed-size matrix operations.
+parses a Julia function definition, expands symbolic derivatives, consults
+declared shape and structure metadata, and emits specialized Julia code for a
+bounded set of fixed-size matrix operations.
 
 The project is intentionally a focused reimplementation of the core Matexpr
 idea rather than a full clone of the historical C/C++ tool. The emphasis is on
@@ -21,7 +21,6 @@ The implemented subset includes:
 
 - pattern matching and rewrite rules over Julia `Expr`s
 - symbolic differentiation with automatic forward/backward mode selection
-- first-order symbolic floating-point error analysis
 - declaration parsing with `@declare`
 - structure-aware simplification for transpose, `+`, `-`, and `*`
 - fixed-size specialization for:
@@ -100,7 +99,6 @@ General frontend:
 - `sin`, `cos`, `exp`
 - Julia vector and matrix literals
 - `deriv(f, x)` and `deriv(f, [x, y])`
-- `error_bound(f)` and `error_bound(f, unit_roundoff)`
 
 Structured analysis:
 
@@ -128,7 +126,6 @@ For `@matexpr`, the current pipeline is:
 2. run frontend processing:
    - `filter_line_numbers`
    - `expand_deriv`
-   - `expand_error_analysis`
    - `normalize_matexpr_basic`
 3. if declarations are present, run structure-aware recursive analysis and
    simplification
@@ -169,8 +166,6 @@ process_matexpr
 process_matexpr_structured
 differentiate_expr_backward
 selected_derivative_mode
-error_bound
-expand_error_analysis
 infer_matrix_info
 normalize_matexpr_structured
 build_function_def_from_lowering

@@ -14,7 +14,6 @@ important parts end to end:
 - emit specialized fixed-size Julia code
 - support simple symbolic differentiation with automatic forward/backward
   mode selection
-- produce first-order symbolic floating-point error bounds
 - provide tests, benchmarks, documentation, and design notes
 
 ## Requirements Map
@@ -29,7 +28,6 @@ repository addresses those items as follows:
 | Julia macro interface | `@matexpr` and `@declare` in `src/macros.jl` |
 | Expression normalization | `src/core` and `src/frontend/pipeline.jl` |
 | Symbolic differentiation and AD mode selection | `src/frontend/diff.jl` |
-| Automatic error analysis | `src/frontend/error_analysis.jl` |
 | Structure and shape analysis | `src/analysis/structure.jl` |
 | Fixed-size code generation | `src/backend/structured_codegen.jl` |
 | Generic lowering fallback | `src/backend/lowering.jl` and `src/backend/emit.jl` |
@@ -37,9 +35,9 @@ repository addresses those items as follows:
 | Timing script | `bench/benchmark.jl` |
 | Documentation and writeup | `README.md`, this page, and `docs/src/index.md` |
 
-The A+ extensions are implemented as bounded compiler features: backward
-symbolic automatic differentiation for scalar-output derivatives and automatic
-first-order roundoff error analysis for the supported expression language.
+The A+ extension is implemented as a bounded compiler feature: backward
+symbolic automatic differentiation for scalar-output derivatives, selected
+automatically from expression shape metadata.
 
 ## User-Facing Design
 
@@ -96,16 +94,15 @@ small passes:
 2. Remove line-number nodes so expression comparisons are stable.
 3. Expand `deriv(...)` into symbolic derivative expressions, choosing forward
    or backward AD from available shape metadata.
-4. Expand `error_bound(...)` into a first-order symbolic roundoff bound.
-5. Normalize basic algebraic forms such as additive and multiplicative identity
+4. Normalize basic algebraic forms such as additive and multiplicative identity
    rules.
-6. Infer matrix dimensions and structure from declarations and expression
+5. Infer matrix dimensions and structure from declarations and expression
    forms.
-7. Apply structure-aware simplifications, such as identity and zero matrix
+6. Apply structure-aware simplifications, such as identity and zero matrix
    rules.
-8. Choose a fixed-size structured specialization when the expression matches a
+7. Choose a fixed-size structured specialization when the expression matches a
    supported pattern.
-9. Fall back to a generic lowered Julia function when no structured
+8. Fall back to a generic lowered Julia function when no structured
    specialization applies.
 
 This staging matters because each pass has a narrow job. Differentiation does
@@ -183,45 +180,6 @@ Vector and matrix literals are still differentiated element by element. That is
 a useful middle ground: it supports Jacobian-like forward derivative queries for
 small expression vectors while reverse mode handles the common scalar objective
 case.
-
-## Automatic Error Analysis
-
-The A+ error-analysis extension is exposed through `error_bound(...)`:
-
-```julia
-@matexpr function add_error(x, y, u)
-    error_bound(x + y, u)
-end
-```
-
-The compiler rewrites this into a first-order symbolic floating-point roundoff
-bound. The optional second argument is the unit roundoff symbol; when omitted it
-defaults to `eps`.
-
-The model treats input variables as exact and adds a local rounding term for
-each supported arithmetic operation. For example:
-
-```julia
-error_bound(x + y, u)      # u * abs(x + y)
-error_bound(x * y, u)      # u * abs(x * y)
-```
-
-For nested expressions, existing subexpression error is propagated through a
-first-order sensitivity bound. A simplified example is:
-
-```julia
-error_bound((x + y) * z, u)
-```
-
-which produces a bound equivalent to:
-
-```julia
-abs(z) * u * abs(x + y) + u * abs((x + y) * z)
-```
-
-This is not a full formal verification system. It is a compiler-generated
-symbolic bound for the supported expression subset, useful for presentation and
-for showing how the expression tree can drive numerical analysis.
 
 ## Structure Analysis
 
@@ -316,11 +274,6 @@ into a full matrix calculus package. The implemented reverse pass handles
 scalar-output objectives and uses declaration metadata for transpose and matrix
 product adjoints. Larger vector-output Jacobians still use the forward path.
 
-A fourth challenge was making error analysis useful but not overclaiming. The
-implemented model is first-order roundoff propagation, not a rigorous interval
-or probabilistic analysis. That boundary keeps the generated expressions
-readable and testable.
-
 A final challenge was deciding where to stop. The historical Matexpr manual has
 many features: output variables, inout variables, scratch arrays, leading
 dimensions, complex declarations, custom function declarations, and more. Adding
@@ -398,7 +351,6 @@ The main limitations are intentional:
 - no custom Matexpr function declaration language
 - no broad sparse or structured linear-algebra optimizer
 - no full matrix-calculus system for arbitrary vector-output Jacobians
-- no higher-order, interval, or probabilistic floating-point error analysis
 
 These limits keep the project understandable enough to present. They also make
 the next steps clear.
@@ -427,10 +379,9 @@ A concise presentation can follow this order:
 4. Demonstrate one generated fixed-size matvec expansion.
 5. Explain symbolic differentiation with `deriv(x * y, [x, y])`.
 6. Show automatic backward selection with `deriv(c' * x, x)`.
-7. Show first-order error analysis with `error_bound((x + y) * z, u)`.
-8. Show the benchmark table and explain why matvec wins but dense matmul does
+7. Show the benchmark table and explain why matvec wins but dense matmul does
    not.
-9. Close with limitations and the strongest future work item: richer
+8. Close with limitations and the strongest future work item: richer
    declarations or better structured storage, but not both at once.
 
 ## Future Work
@@ -448,4 +399,3 @@ Other reasonable extensions are:
 - symbolic dimensions
 - generated loops for larger fixed-size matrices
 - structure-preserving multiplication rules beyond the current subset
-- interval or probabilistic error analysis beyond the current first-order bound

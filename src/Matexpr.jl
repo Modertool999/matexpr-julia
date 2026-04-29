@@ -9,7 +9,6 @@ include("core/rewrite.jl")
 # Frontend analysis and normalization
 include("analysis/structure.jl")
 include("frontend/diff.jl")
-include("frontend/error_analysis.jl")
 include("frontend/pipeline.jl")
 
 # Backend lowering and code generation
@@ -29,7 +28,6 @@ export @matexpr, @declare,
        differentiate_expr, differentiate_expr_backward,
        selected_derivative_mode,
        deriv, expand_deriv, @expand_deriv,
-       error_bound, expand_error_analysis, @expand_error_analysis,
        process_matexpr,
        emit_julia, compile_matexpr,
        build_lambda,

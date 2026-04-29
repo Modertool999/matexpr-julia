@@ -9,8 +9,7 @@ This function applies the current frontend phases in compiler order:
 
 1. remove line-number metadata with `filter_line_numbers`
 2. expand all supported `deriv(f, x)` occurrences
-3. expand all supported `error_bound(f)` occurrences
-4. normalize the result with `normalize_matexpr_basic`
+3. normalize the result with `normalize_matexpr_basic`
 
 # Arguments
 - `ex`: expression tree to process
@@ -36,7 +35,6 @@ A normalized expression suitable for later lowering and code generation.
 function process_matexpr(ctx::CompileContext, ex)
     ex = filter_line_numbers(ex)
     ex = expand_deriv(ctx, ex)
-    ex = expand_error_analysis(ex)
     normalize_matexpr_basic(ex)
 end
 
