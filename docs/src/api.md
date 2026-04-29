@@ -1,0 +1,27 @@
+# API Reference
+
+```@docs
+@declare
+@matexpr
+CompileContext
+DeclarationInfo
+lookup_declaration
+lookup_matrix_info
+process_matexpr
+process_matexpr_structured
+differentiate_expr_backward
+selected_derivative_mode
+infer_matrix_info
+normalize_matexpr_structured
+build_function_def_from_lowering
+build_function_def_from_lowering_structured
+emit_dense_matvec_fixed
+emit_dense_matmul_fixed
+emit_matrix_binary_fixed
+build_dense_matvec_function
+emit_diag_matvec_fixed
+build_diag_matvec_function
+emit_diag_diag_fixed
+build_diag_diag_function
+build_structured_function
+```

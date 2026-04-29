@@ -5,49 +5,42 @@ DocTestSetup = :(using Matexpr)
 
 # Matexpr.jl
 
-`Matexpr.jl` is a small compiler pipeline for matrix expressions in Julia. It
-parses a Julia function definition, expands symbolic derivatives, consults
-declared shape and structure metadata, and emits specialized Julia code for a
-bounded set of fixed-size matrix operations.
+`Matexpr.jl` is a compact Julia compiler prototype for matrix expressions. It
+parses a Julia function, expands symbolic derivatives, uses declared shape and
+structure metadata, and emits specialized Julia code for a small fixed-size
+linear-algebra subset.
 
-The project is intentionally a focused reimplementation of the core Matexpr
-idea rather than a full clone of the historical C/C++ tool. The emphasis is on
-showing the compiler path end to end: frontend syntax, expression rewriting,
-structure analysis, code generation, tests, benchmarks, and documentation.
+This documentation is the main user-facing entry point for the project.
 
-## What This Project Demonstrates
+## Start Here
 
-The implemented subset includes:
+- [Usage Guide](@ref) shows the `@matexpr` and `@declare` workflow.
+- [Supported Subset](@ref) lists the expression forms and specializations that
+  currently compile.
+- [API Reference](@ref) collects the public functions and macros.
+- [Project Writeup And Design Notes](@ref) explains the design decisions,
+  challenges, benchmarks, and project scope.
 
-- pattern matching and rewrite rules over Julia `Expr`s
+## What Matexpr Demonstrates
+
+The implemented subset covers:
+
+- Julia macro syntax for matrix-expression compilation
+- declaration-based shape and structure metadata
+- symbolic expression normalization
 - symbolic differentiation with automatic forward/backward mode selection
-- declaration parsing with `@declare`
-- structure-aware simplification for transpose, `+`, `-`, and `*`
-- fixed-size specialization for:
-  - diagonal matrix-vector multiplication
-  - dense or symmetric matrix-vector multiplication
-  - diagonal-diagonal multiplication
-  - dense matrix-matrix multiplication
-  - matrix addition and subtraction
+- structure-aware simplification for transpose, addition, subtraction, and
+  multiplication
+- fixed-size specialized code generation for selected matrix operations
+- a generic Julia lowering fallback for expressions outside the structured
+  specialization subset
 
-## Recommended Submission Path
+## Minimal Example
 
-For grading or presentation, the most useful files to read are:
-
-- `README.md` for the quick project overview
-- `docs/src/design.md` for the full writeup, design decisions, challenges, and
-  benchmark discussion
-- `bench/benchmark.jl` for the timing entry point
-- `test/runtests.jl` for the test suite entry point
-
-## Quick Start
-
-Dense fixed-size matvec:
-
-```@example basics
+```@example quickstart
 using Matexpr
 
-ex = @macroexpand @matexpr function dense_mv(A, x)
+@eval @matexpr function dense_mv(A, x)
     @declare begin
         input(A, (2, 3), Dense())
         input(x, (3, 1), Dense())
@@ -55,85 +48,10 @@ ex = @macroexpand @matexpr function dense_mv(A, x)
     A * x
 end
 
-filter_line_numbers(ex)
+dense_mv([1 2 3; 4 5 6], [10, 20, 30])
 ```
 
-Diagonal fixed-size matvec:
-
-```@example basics
-@eval @matexpr function diag_mv(D, x)
-    @declare begin
-        input(D, (3, 3), Diagonal())
-        input(x, (3, 1))
-    end
-    D * x
-end
-
-diag_mv([2 0 0; 0 5 0; 0 0 7], [10, 20, 30])
-```
-
-## Supported `@declare` Syntax
-
-In this mini version, `@declare` supports only:
-
-- `input(name, dims[, structure])`
-- integer-literal dimensions
-- `Symmetric()`, `Diagonal()`, and `IdentityStruct()` declarations must be square
-
-Supported structures:
-
-- `Dense()`
-- `Symmetric()`
-- `Diagonal()`
-- `ZeroStruct()`
-- `IdentityStruct()`
-
-## Supported Expression Forms
-
-General frontend:
-
-- literals and symbols
-- transpose `'`
-- binary `+`, `-`, `*`, `/`
-- unary `-`
-- `sin`, `cos`, `exp`
-- Julia vector and matrix literals
-- `deriv(f, x)` and `deriv(f, [x, y])`
-
-Structured analysis:
-
-- declared symbols
-- transpose
-- binary `+` and `-`
-- binary `*`
-
-Structured code generation:
-
-- `D * x` with diagonal `D`
-- `A * x` with dense or symmetric `A`
-- `D1 * D2` with diagonal operands
-- `A * B` with dense matrix operands
-- `A + B` and `A - B` with declared matrix operands
-
-See [Project Writeup And Design Notes](@ref) for the project scope, tradeoffs,
-challenges, benchmark interpretation, and presentation outline.
-
-## Pipeline
-
-For `@matexpr`, the current pipeline is:
-
-1. parse the function and extract `@declare` metadata into `CompileContext`
-2. run frontend processing:
-   - `filter_line_numbers`
-   - `expand_deriv`
-   - `normalize_matexpr_basic`
-3. if declarations are present, run structure-aware recursive analysis and
-   simplification
-4. choose a structured specialization when a supported fixed-size case is
-   recognized
-5. otherwise lower the processed AST into temporaries and emit Julia code
-
-## Verification Commands
+## Development Commands
 
 Run the test suite:
 
@@ -147,36 +65,8 @@ Run the benchmark script:
 julia --project=bench bench/benchmark.jl
 ```
 
-Build the docs locally:
+Build this documentation locally:
 
 ```bash
 julia --project=docs docs/make.jl
-```
-
-## API Reference
-
-```@docs
-@declare
-@matexpr
-CompileContext
-DeclarationInfo
-lookup_declaration
-lookup_matrix_info
-process_matexpr
-process_matexpr_structured
-differentiate_expr_backward
-selected_derivative_mode
-infer_matrix_info
-normalize_matexpr_structured
-build_function_def_from_lowering
-build_function_def_from_lowering_structured
-emit_dense_matvec_fixed
-emit_dense_matmul_fixed
-emit_matrix_binary_fixed
-build_dense_matvec_function
-emit_diag_matvec_fixed
-build_diag_matvec_function
-emit_diag_diag_fixed
-build_diag_diag_function
-build_structured_function
 ```

@@ -10,6 +10,9 @@ makedocs(
     format = Documenter.HTML(),
     pages = [
         "Home" => "index.md",
+        "Usage" => "usage.md",
+        "Supported Subset" => "supported.md",
+        "API" => "api.md",
         "Writeup" => "design.md",
     ]
 )
