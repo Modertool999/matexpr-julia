@@ -8,7 +8,17 @@ import LinearAlgebra
 using BenchmarkTools
 using Matexpr
 
-const N = 8
+const N4 = 4
+const N8 = 8
+const N16 = 16
+
+@matexpr function matexpr_dense_mv_4(A, x)
+    @declare begin
+        input(A, (4, 4), Matexpr.Dense())
+        input(x, (4, 1), Matexpr.Dense())
+    end
+    A * x
+end
 
 @matexpr function matexpr_dense_mv_8(A, x)
     @declare begin
@@ -16,6 +26,22 @@ const N = 8
         input(x, (8, 1), Matexpr.Dense())
     end
     A * x
+end
+
+@matexpr function matexpr_dense_mv_16(A, x)
+    @declare begin
+        input(A, (16, 16), Matexpr.Dense())
+        input(x, (16, 1), Matexpr.Dense())
+    end
+    A * x
+end
+
+@matexpr function matexpr_diag_mv_4(D, x)
+    @declare begin
+        input(D, (4, 4), Matexpr.Diagonal())
+        input(x, (4, 1), Matexpr.Dense())
+    end
+    D * x
 end
 
 @matexpr function matexpr_diag_mv_8(D, x)
@@ -26,54 +52,54 @@ end
     D * x
 end
 
-@matexpr function matexpr_diag_diag_8(D1, D2)
+@matexpr function matexpr_diag_mv_16(D, x)
     @declare begin
-        input(D1, (8, 8), Matexpr.Diagonal())
-        input(D2, (8, 8), Matexpr.Diagonal())
+        input(D, (16, 16), Matexpr.Diagonal())
+        input(x, (16, 1), Matexpr.Dense())
     end
-    D1 * D2
+    D * x
 end
 
-@matexpr function matexpr_dense_mm_8(A, B)
+@matexpr function matexpr_identity_mv_8(I, x)
     @declare begin
-        input(A, (8, 8), Matexpr.Dense())
-        input(B, (8, 8), Matexpr.Dense())
+        input(I, (8, 8), Matexpr.IdentityStruct())
+        input(x, (8, 1), Matexpr.Dense())
     end
-    A * B
+    I * x
 end
 
-@matexpr function matexpr_add_8(A, B)
+@matexpr function matexpr_zero_add_8(Z, A)
     @declare begin
+        input(Z, (8, 8), Matexpr.ZeroStruct())
         input(A, (8, 8), Matexpr.Dense())
-        input(B, (8, 8), Matexpr.Dense())
     end
-    A + B
-end
-
-@matexpr function matexpr_sub_8(A, B)
-    @declare begin
-        input(A, (8, 8), Matexpr.Dense())
-        input(B, (8, 8), Matexpr.Dense())
-    end
-    A - B
+    Z + A
 end
 
 Random.seed!(1)
 
-A = randn(N, N)
-B = randn(N, N)
-x = randn(N)
-d1 = randn(N)
-d2 = randn(N)
-D1 = Matrix(LinearAlgebra.Diagonal(d1))
-D2 = Matrix(LinearAlgebra.Diagonal(d2))
+A4 = randn(N4, N4)
+x4 = randn(N4)
+D4 = Matrix(LinearAlgebra.Diagonal(randn(N4)))
 
-@assert matexpr_dense_mv_8(A, x) ≈ A * x
-@assert matexpr_diag_mv_8(D1, x) ≈ D1 * x
-@assert matexpr_diag_diag_8(D1, D2) ≈ D1 * D2
-@assert matexpr_dense_mm_8(A, B) ≈ A * B
-@assert matexpr_add_8(A, B) ≈ A + B
-@assert matexpr_sub_8(A, B) ≈ A - B
+A8 = randn(N8, N8)
+x8 = randn(N8)
+D8 = Matrix(LinearAlgebra.Diagonal(randn(N8)))
+I8 = Matrix{Float64}(LinearAlgebra.I, N8, N8)
+Z8 = zeros(N8, N8)
+
+A16 = randn(N16, N16)
+x16 = randn(N16)
+D16 = Matrix(LinearAlgebra.Diagonal(randn(N16)))
+
+@assert matexpr_dense_mv_4(A4, x4) ≈ A4 * x4
+@assert matexpr_dense_mv_8(A8, x8) ≈ A8 * x8
+@assert matexpr_dense_mv_16(A16, x16) ≈ A16 * x16
+@assert matexpr_diag_mv_4(D4, x4) ≈ D4 * x4
+@assert matexpr_diag_mv_8(D8, x8) ≈ D8 * x8
+@assert matexpr_diag_mv_16(D16, x16) ≈ D16 * x16
+@assert matexpr_identity_mv_8(I8, x8) ≈ I8 * x8
+@assert matexpr_zero_add_8(Z8, A8) ≈ Z8 + A8
 
 function format_seconds(t)
     if t < 1e-6
@@ -87,47 +113,57 @@ end
 
 cases = [
     (
-        "dense matvec",
-        @belapsed($(Ref(A))[] * $(Ref(x))[]),
-        @belapsed(matexpr_dense_mv_8($(Ref(A))[], $(Ref(x))[])),
+        "dense matvec N=4",
+        @belapsed($(Ref(A4))[] * $(Ref(x4))[]),
+        @belapsed(matexpr_dense_mv_4($(Ref(A4))[], $(Ref(x4))[])),
     ),
     (
-        "diagonal matvec",
-        @belapsed($(Ref(D1))[] * $(Ref(x))[]),
-        @belapsed(matexpr_diag_mv_8($(Ref(D1))[], $(Ref(x))[])),
+        "dense matvec N=8",
+        @belapsed($(Ref(A8))[] * $(Ref(x8))[]),
+        @belapsed(matexpr_dense_mv_8($(Ref(A8))[], $(Ref(x8))[])),
     ),
     (
-        "diagonal product",
-        @belapsed($(Ref(D1))[] * $(Ref(D2))[]),
-        @belapsed(matexpr_diag_diag_8($(Ref(D1))[], $(Ref(D2))[])),
+        "dense matvec N=16",
+        @belapsed($(Ref(A16))[] * $(Ref(x16))[]),
+        @belapsed(matexpr_dense_mv_16($(Ref(A16))[], $(Ref(x16))[])),
     ),
     (
-        "dense matmul",
-        @belapsed($(Ref(A))[] * $(Ref(B))[]),
-        @belapsed(matexpr_dense_mm_8($(Ref(A))[], $(Ref(B))[])),
+        "diagonal matvec N=4",
+        @belapsed($(Ref(D4))[] * $(Ref(x4))[]),
+        @belapsed(matexpr_diag_mv_4($(Ref(D4))[], $(Ref(x4))[])),
     ),
     (
-        "matrix addition",
-        @belapsed($(Ref(A))[] + $(Ref(B))[]),
-        @belapsed(matexpr_add_8($(Ref(A))[], $(Ref(B))[])),
+        "diagonal matvec N=8",
+        @belapsed($(Ref(D8))[] * $(Ref(x8))[]),
+        @belapsed(matexpr_diag_mv_8($(Ref(D8))[], $(Ref(x8))[])),
     ),
     (
-        "matrix subtraction",
-        @belapsed($(Ref(A))[] - $(Ref(B))[]),
-        @belapsed(matexpr_sub_8($(Ref(A))[], $(Ref(B))[])),
+        "diagonal matvec N=16",
+        @belapsed($(Ref(D16))[] * $(Ref(x16))[]),
+        @belapsed(matexpr_diag_mv_16($(Ref(D16))[], $(Ref(x16))[])),
+    ),
+    (
+        "identity matvec N=8",
+        @belapsed($(Ref(I8))[] * $(Ref(x8))[]),
+        @belapsed(matexpr_identity_mv_8($(Ref(I8))[], $(Ref(x8))[])),
+    ),
+    (
+        "zero add N=8",
+        @belapsed($(Ref(Z8))[] + $(Ref(A8))[]),
+        @belapsed(matexpr_zero_add_8($(Ref(Z8))[], $(Ref(A8))[])),
     ),
 ]
 
 println("Matexpr benchmark summary")
-println("Julia: ", VERSION, "    N: ", N)
+println("Julia: ", VERSION)
 println("Times are BenchmarkTools @belapsed minima; lower is better.")
 println("base/matexpr > 1 means the generated Matexpr function was faster.")
 println()
-println(rpad("case", 22), rpad("base", 14), rpad("matexpr", 14), "base/matexpr")
+println(rpad("case", 24), rpad("base", 14), rpad("matexpr", 14), "base/matexpr")
 for (name, base_time, matexpr_time) in cases
     ratio = base_time / matexpr_time
     println(
-        rpad(name, 22),
+        rpad(name, 24),
         rpad(format_seconds(base_time), 14),
         rpad(format_seconds(matexpr_time), 14),
         string(round(ratio; sigdigits = 3), "x"),

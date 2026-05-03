@@ -5,19 +5,15 @@ DocTestSetup = :(using Matexpr)
 
 # Matexpr.jl
 
-`Matexpr.jl` is my Julia macro version of the Matexpr idea: write a small
-matrix expression, add shape and structure facts when they matter, and let the
-macro produce ordinary Julia code.
+`Matexpr.jl` is a small project for embedding matrix expressions before run time based on user delcared matadata.
 
-The public website is intentionally small. The user-facing surface is:
+The user-facing surface is:
 
-- `@matexpr`: wraps a Julia function and compiles the final expression.
-- `@declare`: gives `@matexpr` fixed dimensions and matrix structure metadata
-  for inputs.
+- `@matexpr`: wraps a Julia function and compiles the final expression into ordinary Julia code.
+- `@declare`: supplies `@matexpr` the necessary metadat (fixed dimensions and matrix structure) for inputs.
 
 The [Macro Documentation](@ref) page lists the full supported syntax and
-examples for those two macros. The [Student Writeup](@ref) explains what I
-built, what tradeoffs I made, and what I learned from the project.
+examples for those two macros. The [Student Writeup](@ref) explains what what I learned along the way! Enjoy! :D
 
 ## Minimal Example
 
