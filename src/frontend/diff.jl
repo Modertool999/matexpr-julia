@@ -1,31 +1,3 @@
-"""
-    differentiate_expr(ex, x)
-
-Differentiate the expression `ex` with respect to the variable `x`.
-
-# Supported forms
-This function handles:
-- numeric literals
-- symbols
-- unary minus
-- binary `+`
-- binary `-`
-- binary `*`
-- binary `/`
-- vector and matrix literals, differentiated elementwise
-
-# Arguments
-- `ex`: expression to differentiate
-- `x`: differentiation variable, expected to be a `Symbol`
-
-# Returns
-A Julia expression representing the symbolic derivative of `ex` with
-respect to `x`.
-
-# Notes
-The result is not automatically simplified. To clean up the derivative,
-pass the result through `normalize_basic`.
-"""
 function differentiate_expr(ex, x::Symbol)
     if ex isa Number
         return 0
@@ -322,14 +294,6 @@ function _reverse_accumulate!(ctx::CompileContext, ex, seed, grads::Dict{Symbol,
     grads
 end
 
-"""
-    differentiate_expr_backward(ctx, ex, vars)
-
-Use symbolic backward accumulation to differentiate scalar-output `ex`
-with respect to the symbols in `vars`. This is the reverse-mode backend
-used internally when `deriv(...)` has a larger derivative input space than
-output space.
-"""
 function differentiate_expr_backward(ctx::CompileContext, ex, vars)
     out_rows, out_cols = _expr_shape(ctx, ex)
     out_rows == 1 && out_cols == 1 ||
@@ -340,14 +304,6 @@ function differentiate_expr_backward(ctx::CompileContext, ex, vars)
     Dict{Symbol,Any}(var => normalize_matexpr_basic(grads[var]) for var in vars)
 end
 
-"""
-    selected_derivative_mode(ctx, f, spec)
-
-Return `:forward` or `:backward` for a `deriv(f, spec)` request using the
-available declaration metadata. Matexpr chooses backward mode when the
-output is scalar and the derivative input dimension is larger than the
-output dimension; otherwise it chooses forward mode.
-"""
 function selected_derivative_mode(ctx::CompileContext, f, spec)
     input_size = _spec_size(ctx, spec)
     output_size = _expr_size(ctx, f)
@@ -358,18 +314,6 @@ end
 selected_derivative_mode(f, spec) =
     selected_derivative_mode(CompileContext(), f, spec)
 
-"""
-    deriv(ex, x)
-
-Differentiate `ex` with respect to `x` and normalize the result with
-`normalize_matexpr_basic`.
-
-For public syntax, users only write `deriv(...)`. When declaration
-metadata is available, Matexpr chooses forward or backward symbolic AD
-automatically from the derivative input and output sizes. Scalar-output
-large-input cases use backward accumulation; vector or matrix outputs use
-forward symbolic differentiation.
-"""
 deriv(ex, x::Symbol) = deriv(CompileContext(), ex, x)
 
 function deriv(ctx::CompileContext, ex, x::Symbol)
@@ -401,30 +345,6 @@ end
 _deriv_wrt_spec(ctx::CompileContext, f, spec) =
     error("Unsupported derivative variable specification: $spec")
 
-"""
-    expand_deriv(ex)
-
-Recursively rewrite occurrences of `deriv(f, x)` inside `ex` into the
-normalized symbolic derivative of `f` with respect to `x`.
-
-# Supported form
-This function recognizes subexpressions of the form
-
-    deriv(f, x)
-
-where `x` is a `Symbol`.
-
-# Arguments
-- `ex`: expression tree to transform
-
-# Returns
-A new expression in which each supported `deriv(f, x)` call has been
-replaced by `deriv(f, x)` evaluated symbolically.
-
-# Notes
-This function rewrites the syntax tree recursively, so `deriv(...)`
-calls may appear anywhere inside a larger expression.
-"""
 expand_deriv(ex) = expand_deriv(CompileContext(), ex)
 
 function expand_deriv(ctx::CompileContext, ex)
@@ -447,21 +367,6 @@ function expand_deriv(ctx::CompileContext, ex)
     rebuilt
 end
 
-
-"""
-    @expand_deriv expr
-
-Expand all supported occurrences of `deriv(f, x)` inside `expr` into
-their normalized symbolic derivatives.
-
-Before expansion, the input syntax tree is normalized with
-`filter_line_numbers`.
-
-# Examples
-```julia
-@expand_deriv deriv(x * y, x)          # returns :y
-@expand_deriv q + deriv(sin(x), x)     # returns :(q + cos(x))
-"""
 
 macro expand_deriv(ex)
     ex = filter_line_numbers(ex)

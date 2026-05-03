@@ -20,11 +20,6 @@ function _validate_declaration_shape(rows::Int, cols::Int, structure::MatrixStru
     end
 end
 
-"""
-    MatrixInfo(rows, cols, structure)
-
-Conservative inferred matrix metadata for an expression subtree.
-"""
 struct MatrixInfo
     rows::Int
     cols::Int
@@ -43,11 +38,6 @@ _is_self_transpose(info::MatrixInfo) =
 _same_shape(lhs::MatrixInfo, rhs::MatrixInfo) =
     lhs.rows == rhs.rows && lhs.cols == rhs.cols
 
-"""
-    DeclarationInfo(rows, cols, structure, role)
-
-Declared metadata for a named symbol in a matexpr compilation context.
-"""
 struct DeclarationInfo
     rows::Int
     cols::Int
@@ -67,12 +57,6 @@ end
 
 const DeclarationEnv = Dict{Symbol, DeclarationInfo}
 
-"""
-    CompileContext(declarations[, options])
-
-Compilation context for a matexpr expansion. This holds the declaration
-table for named symbols plus compiler-wide options.
-"""
 struct CompileContext
     declarations::DeclarationEnv
     options::Dict{Symbol,Any}
@@ -89,31 +73,11 @@ CompileContext(; options = Dict{Symbol,Any}()) =
 CompileContext(declarations::DeclarationEnv; options = Dict{Symbol,Any}()) =
     CompileContext(declarations, Dict{Symbol,Any}(options))
 
-"""
-    lookup_declaration(ctx, x)
-
-Return the declared compilation metadata for symbol `x`.
-
-# Arguments
-- `ctx`: compilation context
-- `x`: symbol to query
-
-# Returns
-The `DeclarationInfo` associated with `x`.
-
-# Errors
-Throws an error if `x` has no declared metadata.
-"""
 function lookup_declaration(ctx::CompileContext, x::Symbol)
     haskey(ctx.declarations, x) || error("No declaration metadata declared for $x")
     ctx.declarations[x]
 end
 
-"""
-    lookup_matrix_info(ctx, x)
-
-Return the `MatrixInfo` view of the declared metadata for symbol `x`.
-"""
 lookup_matrix_info(ctx::CompileContext, x::Symbol) =
     matrix_info(lookup_declaration(ctx, x))
 
@@ -241,70 +205,9 @@ end
 
 
 
-"""
-    infer_matrix_info(ctx, ex)
-
-Infer conservative matrix metadata for the expression `ex` using the
-declared symbol metadata in `ctx`.
-
-# Arguments
-- `ctx`: compilation context
-- `ex`: matrix expression to analyze
-
-# Returns
-A `MatrixInfo` describing the inferred shape and coarse structure of
-`ex`.
-
-# Supported forms
-This first version supports:
-- matrix symbols
-- transpose expressions `A'`
-- binary addition/subtraction `A + B` and `A - B`
-- binary multiplication `A * B`
-
-# Errors
-Throws an error if:
-- a referenced symbol has no declared metadata in `ctx`
-- an unsupported expression form is encountered
-- matrix dimensions are incompatible for `+` or `*`
-
-# Notes
-The inferred structure is conservative: when no safe structured case
-applies, the result defaults to `Dense`.
-"""
 infer_matrix_info(ctx::CompileContext, ex) = last(_structured_pass(ctx, ex; simplify = false))
 
 
-"""
-    normalize_matexpr_structured(ctx, ex)
-
-Normalize a matrix expression using declared and inferred structural
-metadata from `ctx`.
-
-# Arguments
-- `ctx`: compilation context
-- `ex`: expression tree to normalize
-
-# Returns
-A structurally simplified expression.
-
-# Current simplifications
-This first version applies:
-- `u' => u` when `u` is square symmetric, diagonal, identity, or zero
-- `I * u => u`
-- `u * I => u`
-- `Z * u => Z` when `Z` already has the product shape
-- `u * Z => Z` when `Z` already has the product shape
-- `Z + u => u`
-- `u + Z => u`
-- `u - Z => u`
-
-where the relevant structural facts are inferred from `ctx`.
-
-# Notes
-This function is recursive and bottom-up. It uses `infer_matrix_info`
-to make conservative structure-based simplification decisions.
-"""
 function normalize_matexpr_structured(ctx::CompileContext, ex)
     if !(ex isa Expr)
         return ex

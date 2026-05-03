@@ -1,32 +1,3 @@
-"""
-    lower_once_to_temp(ex)
-
-Perform one small lowering step by introducing a temporary for the left
-operand of a binary call when that operand is itself a nontrivial
-expression.
-
-# Arguments
-- `ex`: Julia expression to lower
-
-# Returns
-A pair `(temp_pairs, result)` where:
-- `temp_pairs` is a vector of temporary assignment pairs `(lhs, rhs)`
-- `result` is the lowered result expression
-
-# Behavior
-If `ex` is a binary call `u op v` and `u` is an `Expr`, this function
-introduces one fresh temporary for `u` and returns a rewritten result
-expression using that temporary.
-
-Otherwise, it returns an empty list of temporary assignments and `ex`
-unchanged.
-
-# Examples
-```julia
-lower_once_to_temp(:((x + y) * z))
-# might return ([(:t1, :(x + y))], :(t1 * z))
-```
-"""
 function lower_once_to_temp(ex)
     if !(ex isa Expr) || ex.head != :call || length(ex.args) != 3
         return (Tuple{Any,Any}[], ex)
@@ -44,34 +15,6 @@ function lower_once_to_temp(ex)
     end
 end
 
-"""
-    lower_expr_to_temps(ex)
-
-Recursively lower an expression into a sequence of temporary assignments
-and a final result expression.
-
-# Arguments
-- `ex`: Julia expression to lower
-
-# Returns
-A pair `(temp_pairs, result)` where:
-- `temp_pairs` is a vector of temporary assignment pairs `(lhs, rhs)`
-- `result` is a simplified expression or temporary symbol representing
-  the lowered result
-
-# Behavior
-- Non-`Expr` values are returned unchanged with no temporaries
-- Unary transpose expressions are lowered recursively through their inner
-  argument
-- Binary call expressions are lowered recursively through both operands
-- Nontrivial lowered subexpressions are assigned to fresh temporaries
-- The final rebuilt binary expression is itself assigned to a fresh
-  temporary
-
-# Notes
-This is a simple first lowering strategy. It favors clarity and explicit
-staging over minimal temporary count.
-"""
 function lower_expr_to_temps(ex)
     if !(ex isa Expr)
         return (Tuple{Any,Any}[], ex)
@@ -151,38 +94,9 @@ function _build_function_def_from_processed(name, args, processed)
     Expr(:function, call, body)
 end
 
-"""
-    build_function_def_from_lowering(name, args, ex)
-
-Build a named Julia function definition by processing a matexpr-style
-expression, lowering it into temporaries, and emitting a multi-statement
-function body.
-
-# Arguments
-- `name`: function name as a `Symbol`
-- `args`: collection of symbols naming the function parameters
-- `ex`: raw matexpr-style expression tree
-
-# Returns
-A Julia `Expr` representing a function definition whose body consists of:
-- temporary assignments produced by lowering
-- a final `return` of the lowered result
-
-# Notes
-This is the first end-to-end staged code generator in the current
-pipeline. It combines frontend processing with backend lowering and code
-assembly.
-"""
 build_function_def_from_lowering(name, args, ex) =
     build_function_def_from_lowering(name, args, CompileContext(), ex)
 
-"""
-    build_function_def_from_lowering(name, args, ctx, ex)
-
-Build a named Julia function definition by processing a matexpr-style
-expression with compilation context `ctx`, lowering it into temporaries,
-and emitting a multi-statement function body.
-"""
 function build_function_def_from_lowering(name, args, ctx::CompileContext, ex)
     @assert name isa Symbol "Function name must be a Symbol"
     @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"
@@ -191,28 +105,6 @@ function build_function_def_from_lowering(name, args, ctx::CompileContext, ex)
     _build_function_def_from_processed(name, args, processed)
 end
 
-"""
-    build_function_def_from_lowering_structured(name, args, ctx, ex)
-
-Build a named Julia function definition by processing a matexpr-style
-expression with declared structure metadata, lowering it into
-temporaries, and emitting a multi-statement function body.
-
-# Arguments
-- `name`: function name as a `Symbol`
-- `args`: collection of symbols naming the function parameters
-- `ctx`: compilation context
-- `ex`: raw matexpr-style expression tree
-
-# Returns
-A Julia `Expr` representing a function definition whose body consists of:
-- temporary assignments produced by lowering
-- a final `return` of the lowered result
-
-# Notes
-This is the structured analogue of `build_function_def_from_lowering`.
-It uses structure-aware normalization before lowering.
-"""
 function build_function_def_from_lowering_structured(name, args, ctx::CompileContext, ex)
     @assert name isa Symbol "Function name must be a Symbol"
     @assert all(a -> a isa Symbol, args) "All function arguments must be symbols"

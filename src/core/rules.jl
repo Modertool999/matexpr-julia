@@ -1,20 +1,3 @@
-"""
-    parse_rule(rule)
-
-Parse a rule of the form
-
-    pattern => args -> code
-
-into a structured 4-tuple:
-
-    (symbols, expr_name, pattern, code)
-
-where:
-- `symbols` is the list of bindable pattern-variable names
-- `expr_name` is either `nothing` or a symbol naming the whole matched expression
-- `pattern` is the left-hand-side match pattern
-- `code` is the right-hand-side transformation code
-"""
 function parse_rule(rule)
     match_rule = @match (pattern, args, code) pattern => args -> code
     isok, rule_parts = match_rule(rule)
@@ -50,18 +33,6 @@ function parse_rule(rule)
     symbols, expr_name, pattern, code
 end
 
-"""
-    compile_rule(rule, expr, result)
-
-Compile one rule into Julia code that:
-- tries to match `expr` against the rule pattern
-- if successful, binds the rule arguments to the matched pieces
-- evaluates the rule right-hand side
-- assigns the result into `result`
-- returns `true` on success and `false` otherwise
-
-This generated code assumes `expr` and `result` already exist in the surrounding scope.
-"""
 function compile_rule(rule, expr, result)
     symbols, expr_name, pattern, code = parse_rule(rule)
     bindings = Dict{Symbol,Any}(s => nothing for s in symbols)
@@ -90,13 +61,6 @@ end
 
 
 
-"""
-    @rule rule_expr
-
-Compile a single rule into a function takes 
-one expression and returns (did_match, rewritten_expr_or_nothing)
-
-"""
 macro rule(r)
     expr, result = gensym(), gensym()
     code = compile_rule(filter_line_numbers(r), expr, result)
@@ -108,16 +72,6 @@ macro rule(r)
     end)
 end
 
-"""
-    @rules begin
-        rule1
-        rule2
-        ...
-    end
-
-Compile a block of rules into a function that applies them in order and
-returns the result from the first rule that matches, or `nothing` if none match.
-"""
 macro rules(rblock::Expr)
     rblock = filter_line_numbers(rblock)
     if rblock.head != :block
