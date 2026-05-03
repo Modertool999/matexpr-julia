@@ -1,47 +1,52 @@
-# Project Writeup And Design Notes
+# Student Writeup
 
-This project is a Julia reimplementation of the core Matexpr idea: write a
-small matrix expression, attach structure and shape metadata, and generate
-specialized Julia code for cases where the metadata makes optimization safe.
+## What I Built
 
-The implementation is intentionally a compiler prototype rather than a full
-replacement for the historical C/C++ Matexpr system. The goal was to build the
-important parts end to end:
+For this project, I built a small Julia reimplementation of the main Matexpr
+idea. The user writes a normal Julia function, wraps it in `@matexpr`, and can
+add an `@declare` block to tell the compiler about input shapes and matrix
+structure.
 
-- parse a user-facing expression format
-- normalize and symbolically transform expressions
-- track matrix shape and structure
-- emit specialized fixed-size Julia code
-- support simple symbolic differentiation with automatic forward/backward
-  mode selection
-- provide tests, benchmarks, documentation, and design notes
+The goal was not to clone every feature from the older C/C++ Matexpr system. I
+focused on building a complete prototype around the parts that seemed most
+important for a course project:
+
+- a Julia macro interface
+- declaration-based shape and structure metadata
+- symbolic expression cleanup
+- symbolic differentiation
+- automatic forward/backward derivative mode selection
+- structure-aware matrix simplification
+- fixed-size code generation for selected matrix expressions
+- tests, benchmarks, and documentation
+
+The public user interface ended up being intentionally small: `@matexpr` for
+compiling a function and `@declare` for supplying metadata. I learned that a
+small public API made the project easier to explain and much easier to test.
 
 ## Requirements Map
 
-The reference project agreement called for a working Julia macro version,
-fixed-size matrix code generation, simple symbolic differentiation, tests,
-timing, documentation, and a design/lessons-learned writeup. The current
-repository addresses those items as follows:
+Here is how the implementation lines up with the project requirements:
 
-| Requirement | Where It Is Implemented |
+| Requirement | Where I implemented it |
 | --- | --- |
 | Julia macro interface | `@matexpr` and `@declare` in `src/macros.jl` |
 | Expression normalization | `src/core` and `src/frontend/pipeline.jl` |
 | Symbolic differentiation and AD mode selection | `src/frontend/diff.jl` |
-| Structure and shape analysis | `src/analysis/structure.jl` |
+| Shape and structure analysis | `src/analysis/structure.jl` |
 | Fixed-size code generation | `src/backend/structured_codegen.jl` |
-| Generic lowering fallback | `src/backend/lowering.jl` and `src/backend/emit.jl` |
-| Test suite | `test/runtests.jl` and focused test files |
+| Generic Julia lowering fallback | `src/backend/lowering.jl` and `src/backend/emit.jl` |
+| Tests | `test/runtests.jl` and the focused test files |
 | Timing script | `bench/benchmark.jl` |
-| Documentation and writeup | `README.md`, this page, and `docs/src/index.md` |
+| Documentation and writeup | `README.md` and `docs/src` |
 
-The A+ extension is implemented as a bounded compiler feature: backward
-symbolic automatic differentiation for scalar-output derivatives, selected
-automatically from expression shape metadata.
+The A+ extension is the backward symbolic AD path for scalar-output
+derivatives. The user still writes `deriv(...)`; the compiler chooses backward
+mode when the declaration metadata says it is a better fit.
 
 ## User-Facing Design
 
-The user entry point is a normal Julia function wrapped with `@matexpr`:
+The main syntax looks like this:
 
 ```julia
 @matexpr function dense_mv(A, x)
@@ -53,68 +58,63 @@ The user entry point is a normal Julia function wrapped with `@matexpr`:
 end
 ```
 
-The `@declare` block gives the compiler facts that Julia's syntax alone does
-not provide:
+I chose this form because it feels like normal Julia. The macro gets a Julia
+expression tree from the parser, and the declarations are also Julia syntax
+instead of comments or strings.
 
-- the role of the variable, currently `input`
+The `@declare` block gives the compiler facts that are hard to recover from a
+plain expression:
+
+- the variable role, currently only `input`
 - fixed integer dimensions
-- optional matrix structure, such as `Dense()` or `Diagonal()`
+- optional structure tags like `Dense()`, `Diagonal()`, or `Symmetric()`
 
-This is a direct replacement for the role that comments and declarations played
-in the old Matexpr workflow, but expressed as Julia syntax instead of a
-separate C/C++ comment language.
+I learned that validating metadata early is worth it. For example, a
+`Diagonal()` or `Symmetric()` declaration must be square. Catching that at
+declaration time keeps later compiler passes simpler.
 
-## Why Julia Macros Instead Of A Custom Parser?
+## Why Julia Macros
 
-The original Matexpr system parsed annotations embedded in C/C++ comments. That
-made sense for a C library, but it would have been a lot of infrastructure for
-this course project. Julia macros were a better fit for three reasons.
+The original Matexpr used annotations in C/C++ comments. I considered that
+idea, but it would have pushed a lot of effort into parsing. Julia macros were
+a better fit for what I wanted to learn.
 
-First, Julia already parses the expression into an `Expr` tree. That lets the
-project spend effort on compiler passes instead of tokenization and parsing.
+The first advantage is that Julia already parses the function into an `Expr`
+tree. That let me spend time on compiler passes instead of tokenization.
 
-Second, the generated result can be ordinary Julia code. The output is easy to
-inspect with `@macroexpand`, easy to run in tests, and easy to compare against
-Julia's built-in operations.
+The second advantage is that macro expansion produces normal Julia code. I
+could inspect generated functions with `@macroexpand`, run them directly in
+tests, and compare them against regular Julia array operations.
 
-Third, macro expansion gives a natural staged-compilation boundary. The project
-can accept a high-level expression and replace it with a specialized function
-definition before runtime.
-
-The tradeoff is that this version is not source-compatible with the old C/C++
-Matexpr syntax. That is deliberate. The course goal was a working
-reimplementation of the ideas, not a complete historical parser.
+The tradeoff is that my version is not source-compatible with the old C/C++
+Matexpr syntax. I think that was the right tradeoff for this project because
+the assignment was more about reimplementing the ideas than preserving the old
+surface syntax exactly.
 
 ## Compiler Pipeline
 
-`@matexpr` turns a function into generated Julia code through a sequence of
-small passes:
+The macro expansion pipeline is:
 
-1. Parse the function body and extract the `@declare` metadata.
-2. Remove line-number nodes so expression comparisons are stable.
-3. Expand `deriv(...)` into symbolic derivative expressions, choosing forward
-   or backward AD from available shape metadata.
-4. Normalize basic algebraic forms such as additive and multiplicative identity
-   rules.
-5. Infer matrix dimensions and structure from declarations and expression
-   forms.
-6. Apply structure-aware simplifications, such as identity and zero matrix
-   rules.
-7. Choose a fixed-size structured specialization when the expression matches a
-   supported pattern.
-8. Fall back to a generic lowered Julia function when no structured
-   specialization applies.
+1. Read the function body and extract `@declare` metadata.
+2. Remove Julia line-number nodes so expression comparisons are stable.
+3. Expand supported `deriv(...)` calls.
+4. Normalize simple algebraic forms.
+5. Infer matrix shape and structure from declarations.
+6. Apply structure-aware simplifications.
+7. Use a fixed-size specialization if the expression matches a supported
+   matrix pattern.
+8. Fall back to ordinary lowered Julia code when no structured specialization
+   applies.
 
-This staging matters because each pass has a narrow job. Differentiation does
-not need to understand matrix storage. Code generation does not need to know how
-`deriv(...)` was written by the user. Structure analysis does not need to parse
-the original function body.
+I learned that keeping these steps separate made debugging much easier. When a
+test failed, I could usually tell whether the problem was in differentiation,
+shape inference, simplification, or code generation.
 
 ## Expression Rewriting
 
-The core rewrite layer works directly over Julia expressions. It supports
-bottom-up rewrites, fixed-point rewrites, and pattern-based local rules. This is
-used for cleanup such as:
+The core rewrite layer works on Julia expressions. It supports bottom-up
+rewrites, fixed-point rewrites, and small pattern rules. I used it for cleanup
+such as:
 
 - `x + 0 => x`
 - `0 + x => x`
@@ -124,24 +124,13 @@ used for cleanup such as:
 - `(A')' => A`
 - `(A * B)' => B' * A'`
 
-The rewrite system is intentionally small. It is powerful enough to make
-generated expressions readable and to simplify derivative results, but it avoids
-trying to become a full computer algebra system.
+I learned that this kind of rewrite system is useful even when it is small. It
+made derivative results cleaner and kept generated code from getting too noisy.
+At the same time, I avoided trying to build a full computer algebra system.
 
 ## Symbolic Differentiation
 
-Differentiation is symbolic AD over a small scalar language. Users only write
-`deriv(...)`; the compiler chooses the differentiation form internally. It
-supports:
-
-- literals and symbols
-- `+`, `-`, `*`, and `/`
-- unary negation
-- transpose
-- `sin`, `cos`, and `exp`
-- Julia vector and matrix literals
-
-Examples:
+Inside a `@matexpr` function, the user can write `deriv(...)`:
 
 ```julia
 deriv(x * y, x)          # y
@@ -150,15 +139,14 @@ deriv([x, x * y], x)     # [1, y]
 deriv(x * y, [x, y])     # [y, x]
 ```
 
-The forward path is the original symbolic differentiation pass. It walks from
-inputs to outputs and applies local rules like the product rule. This remains
-the right choice for small-input/large-output cases, because a small number of
-input directions can produce many output derivatives.
+The forward path walks the expression and applies local symbolic rules like
+the product rule. This works well when there are only a few derivative
+directions or when the output is vector-valued.
 
-The backward path is a reverse symbolic accumulation pass for scalar-output
-expressions. It starts with output adjoint `1` and pushes adjoints backward
-through the expression tree. When declarations say that a derivative has many
-input degrees of freedom but one output, Matexpr chooses this backward path.
+The backward path is for scalar-output expressions. It starts with output
+adjoint `1` and pushes adjoints backward through the expression tree. When
+declarations show that the derivative input has more entries than the scalar
+output, the compiler picks this path automatically.
 
 For example:
 
@@ -172,63 +160,53 @@ For example:
 end
 ```
 
-Here `c' * x` has output size `1`, while `x` has input size `3`, so the
-automatic selector chooses backward mode and returns `c`. The user does not
-write a separate reverse-mode API.
+Here the output is scalar and `x` has three entries, so the compiler chooses
+the backward symbolic path and returns `c`.
 
-Vector and matrix literals are still differentiated element by element. That is
-a useful middle ground: it supports Jacobian-like forward derivative queries for
-small expression vectors while reverse mode handles the common scalar objective
-case.
+I learned that reverse-mode differentiation is much harder once matrix shapes
+are involved. I kept the implementation bounded to scalar-output objectives
+instead of trying to support every possible Jacobian case.
 
-## Structure Analysis
+## Shape And Structure Analysis
 
-The structure pass tracks three facts for each expression:
+The structure pass tracks three facts:
 
 - row count
 - column count
-- coarse structure
+- coarse matrix structure
 
-The supported structures are:
+The supported structures are `Dense()`, `Symmetric()`, `Diagonal()`,
+`ZeroStruct()`, and `IdentityStruct()`.
 
-- `Dense()`
-- `Symmetric()`
-- `Diagonal()`
-- `ZeroStruct()`
-- `IdentityStruct()`
-
-Square-only structures are validated at declaration time. This was one of the
-most important cleanup decisions, because it prevents later passes from having
-to repeatedly guard against impossible shapes. For example, a rectangular
-identity matrix is rejected before optimization begins.
-
-The analysis pass understands declared symbols, transpose, addition,
-subtraction, and multiplication. It then enables safe simplifications:
+The pass understands declared symbols, transpose, addition, subtraction, and
+multiplication. That enables simplifications such as:
 
 - `Z + A` and `A + Z` become `A`.
 - `A - Z` becomes `A`.
 - `I * A` and `A * I` become `A` when dimensions match.
-- `D1 * D2` remains diagonal.
+- `D1 * D2` stays diagonal.
 - `S'` becomes `S` for square symmetric matrices.
 - `D'` becomes `D` for square diagonal matrices.
 
-The simplifications are conservative. For instance, `Z - A` is not rewritten to
-`A`, because that would silently change the sign. Zero products are only
-collapsed when the zero operand already has the product's resulting shape.
+One important lesson was that a rewrite can be mathematically true but still
+wrong for a compiler if it changes the represented shape. For example, `Z * A`
+can only collapse to a zero matrix if the zero expression has the same shape as
+the product. I ended up making the simplification rules conservative on
+purpose.
 
 ## Fixed-Size Code Generation
 
-The structured backend emits scalarized Julia expressions for recognized
-fixed-size cases:
+The structured backend emits scalarized Julia expressions for a few fixed-size
+patterns:
 
 - diagonal matrix-vector multiplication
 - dense or symmetric matrix-vector multiplication
 - diagonal-diagonal multiplication
-- dense matrix-matrix multiplication
+- dense or symmetric matrix-matrix multiplication
 - matrix addition and subtraction
 
-For dense matrix-vector multiplication, an expression like `A * x` becomes a
-literal vector whose entries are scalar sums:
+For a dense matrix-vector multiply, the generated result is a literal vector
+whose entries are scalar sums:
 
 ```julia
 [
@@ -237,58 +215,44 @@ literal vector whose entries are scalar sums:
 ]
 ```
 
-For matrix-matrix multiplication, each output entry is emitted as a scalar dot
-product. For matrix addition and subtraction, each output entry is emitted as an
-elementwise scalar operation.
-
-Transposed declared operands are handled by reversing generated indices. That
-means `A' * x` can use the same scalarized matvec backend without first
-materializing `A'`.
+I also added support for transposed declared operands by reversing generated
+indices. That means `A' * x` can use the same scalarized backend without
+materializing `A'` first.
 
 ## Fallback Lowering
 
-Not every expression has a structured specialization. When the expression is
-outside the supported fixed-size patterns, the compiler still returns a normal
-Julia function by lowering nested calls into temporaries and emitting ordinary
-Julia code.
+Not every expression gets a structured specialization. If the frontend can
+still represent the expression, the compiler lowers it into ordinary Julia code
+instead.
 
-This fallback is important for usability. It lets the macro work for simple
-arithmetic and derivative examples even when no matrix optimization is possible.
-It also keeps the structured backend honest: specialization is an optimization,
-not the only way to produce code.
+This fallback made the prototype more usable. It let simple scalar arithmetic
+and derivative examples compile even when no matrix optimization applied. I
+learned that a fallback path is valuable because it lets the optimized path
+stay focused instead of becoming responsible for every case.
 
-## Challenges Faced
+## Challenges
 
-The largest challenge was keeping shape simplification correct. A rule like
-`Z * A => Z` looks obvious, but it is only safe if the zero expression has the
-same shape as the product. Otherwise the rewrite can return a zero matrix with
-the wrong dimensions. The final implementation keeps those rules conservative.
+The biggest challenge was shape correctness. At first, some simplifications
+looked obvious but were not safe once dimensions were included. This forced me
+to make shape checks part of the rewrite logic instead of treating them as a
+separate afterthought.
 
-Another challenge was handling Julia expression forms exactly enough without
-overbuilding the frontend. Matrix literals use `:vect`, `:row`, and `:vcat`
-heads internally, so derivative expansion and emission both needed explicit
-support for those forms.
+Another challenge was Julia's expression syntax. Matrix literals use internal
+forms like `:vect`, `:row`, and `:vcat`, so both differentiation and emission
+needed explicit support for those cases.
 
-A third challenge was making reverse AD shape-aware without turning the project
-into a full matrix calculus package. The implemented reverse pass handles
-scalar-output objectives and uses declaration metadata for transpose and matrix
-product adjoints. Larger vector-output Jacobians still use the forward path.
+The reverse AD extension was also harder than I expected. It was not enough to
+differentiate scalar algebra; the pass also needed enough shape metadata to
+handle expressions like `c' * x` cleanly.
 
-A final challenge was deciding where to stop. The historical Matexpr manual has
-many features: output variables, inout variables, scratch arrays, leading
-dimensions, complex declarations, custom function declarations, and more. Adding
-all of those would have made the project broader but less complete. The final
-version instead keeps a tight feature set and tests it in detail.
-
-The benchmark script also needed some care. Early benchmark-group output showed
-some misleading near-zero timings in this Julia/BenchmarkTools setup. The final
-script uses direct `@belapsed` measurements and prints a compact table, which is
-clearer for presentation.
+Finally, I had to decide what not to build. The historical Matexpr system has
+many more declaration types, storage layouts, and generated-code options. I
+learned that cutting scope was necessary to get a tested end-to-end version.
 
 ## Benchmark Results
 
-The benchmark script runs `N = 8` cases and compares Julia's built-in operation
-against the generated Matexpr function. A representative local run with Julia
+The benchmark script uses `N = 8` cases and compares regular Julia operations
+against generated Matexpr functions. A representative local run with Julia
 1.12.3 produced:
 
 | Case | Base Julia | Matexpr | Base / Matexpr |
@@ -300,32 +264,24 @@ against the generated Matexpr function. A representative local run with Julia
 | matrix addition | 39.32 ns | 263.9 ns | 0.149x |
 | matrix subtraction | 35.93 ns | 264.3 ns | 0.136x |
 
-The two matvec cases are the best examples of what this prototype is good at.
-For tiny fixed-size vectors, avoiding a generic call and emitting direct scalar
-indexing can win.
+The two matrix-vector cases are the best results. For tiny fixed-size vectors,
+the generated scalar indexing can avoid some overhead.
 
-The dense matmul and elementwise matrix operations are slower than Julia's
-built-in implementations in this benchmark. That is not surprising. Julia and
-BLAS already do a good job on small dense arrays, and the generated matrix
-literal allocates a new array just like the base operation does. The scalarized
-code also grows quickly as dimensions increase.
+The other cases are a useful reminder that generated code is not automatically
+faster. Julia and BLAS already do a good job on small dense arrays, and this
+prototype still returns dense Julia arrays. The diagonal product result is
+especially bad because my call boundary represents diagonal matrices as dense
+matrices with zeros. A better version would store diagonal inputs as vectors or
+as `LinearAlgebra.Diagonal`.
 
-The diagonal product case is especially poor because this prototype represents
-diagonal matrices as ordinary dense Julia matrices at the call boundary. The
-generated code builds a full matrix literal, while Julia's optimized path for
-the specific operation in this benchmark is much cheaper. A more production-like
-implementation would represent diagonal data as a vector or as
-`LinearAlgebra.Diagonal` and generate only the diagonal entries.
+I learned that benchmarks are most useful when they explain the tradeoff, not
+just when they show a win. In this project, the takeaway is that the compiler
+pipeline works and that scalarization helps some tiny fixed-size cases, but it
+is not a universal replacement for Julia's built-in linear algebra.
 
-The benchmark takeaway is not that every generated kernel beats Julia. The
-takeaway is more specific: the compiler pipeline works, the structured
-specializations execute correctly, and the performance behavior matches the
-design tradeoffs. Direct scalarization helps for some tiny fixed-size cases but
-is not automatically better than Julia's native array operations.
+## Testing
 
-## Testing Strategy
-
-The tests are organized by compiler layer:
+I organized tests by compiler layer:
 
 - AST utilities and rewrite rules
 - symbolic differentiation
@@ -336,10 +292,9 @@ The tests are organized by compiler layer:
 - fixed-size structured code generation
 - macro integration and executable generated functions
 
-This layered test structure was useful while developing because most failures
-pointed to a specific compiler stage. For example, a derivative failure usually
-stayed in `test/test_diff.jl`, while a matrix-shape failure usually stayed in
-`test/test_structure.jl`.
+This helped a lot while developing. A derivative failure usually pointed to
+`test/test_diff.jl`, while a matrix-shape failure usually pointed to
+`test/test_structure.jl` or the structured-codegen tests.
 
 ## Limitations
 
@@ -352,50 +307,35 @@ The main limitations are intentional:
 - no broad sparse or structured linear-algebra optimizer
 - no full matrix-calculus system for arbitrary vector-output Jacobians
 
-These limits keep the project understandable enough to present. They also make
-the next steps clear.
+These limits made the project small enough to finish and test. They also make
+the next steps clearer.
 
-## Lessons Learned
+## What I Learned
 
-The biggest design lesson is that metadata should be explicit and validated
-early. Once the compiler knows that a declaration is square, dense, diagonal, or
-symmetric, the later passes become much simpler.
+I learned that explicit metadata is one of the most useful tools in a small
+compiler. Once the compiler knows dimensions and structure, it can make better
+choices and reject impossible cases earlier.
 
-Another lesson is that conservative rewrites are better than clever rewrites in
-a shape-aware compiler. A mathematically true rewrite can still be wrong if it
-changes the represented dimensions.
+I learned that conservative rewrites are usually better than clever rewrites
+when shapes are involved. Correctness depends on both the algebra and the
+represented dimensions.
 
-The final lesson is that a compiler prototype benefits from a reliable fallback
-path. The structured backend can stay small because unsupported expressions
-still compile to ordinary Julia code.
-
-## Presentation Outline
-
-A concise presentation can follow this order:
-
-1. Show the original Matexpr idea: matrix expressions plus structure metadata.
-2. Show the Julia `@matexpr` and `@declare` syntax.
-3. Walk through the compiler pipeline.
-4. Demonstrate one generated fixed-size matvec expansion.
-5. Explain symbolic differentiation with `deriv(x * y, [x, y])`.
-6. Show automatic backward selection with `deriv(c' * x, x)`.
-7. Show the benchmark table and explain why matvec wins but dense matmul does
-   not.
-8. Close with limitations and the strongest future work item: richer
-   declarations or better structured storage, but not both at once.
+I also learned that a compiler project benefits from having a working path all
+the way through, even if it is not optimized. The generic lowering fallback made
+the project feel complete because every supported frontend expression still had
+some way to become executable Julia code.
 
 ## Future Work
 
-The most useful next step would be better storage-aware declarations. For
-example, a diagonal input could be represented by its diagonal vector rather
-than by a dense matrix with zeros. That would make the diagonal product
-specialization much more meaningful.
+The next thing I would improve is storage-aware declarations. A diagonal input
+should be stored as its diagonal entries instead of as a full dense matrix.
+That would make diagonal specializations much more meaningful.
 
-Other reasonable extensions are:
+Other reasonable extensions would be:
 
 - output and inout declaration roles
 - scratch temporaries
 - richer matrix literal and indexing support
 - symbolic dimensions
 - generated loops for larger fixed-size matrices
-- structure-preserving multiplication rules beyond the current subset
+- more structure-preserving multiplication rules

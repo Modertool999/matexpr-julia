@@ -146,11 +146,16 @@ end
         input(x, (3, 1))
     end
 
-Attach matexpr declaration metadata to a function body using Julia's
-`:meta` convention. This macro is intended to be consumed by `@matexpr`.
+Attach Matexpr declaration metadata to a function body. This macro is intended
+to appear inside a function wrapped by `@matexpr`.
 
-Current mini-version limitation: only `input(name, dims[, structure])`
-declarations are supported, and `dims` must use integer literals.
+Supported declarations use `input(name, dims[, structure])`, where `dims` is a
+positive integer literal, a one-entry integer tuple, or a two-entry integer
+tuple. If `structure` is omitted, `Dense()` is used.
+
+Supported structures are `Dense()`, `Symmetric()`, `Diagonal()`, `ZeroStruct()`,
+and `IdentityStruct()`. `Symmetric()`, `Diagonal()`, and `IdentityStruct()`
+inputs must be square.
 """
 macro declare(block)
     entries = _declaration_entries_from_block(block)
@@ -165,9 +170,11 @@ end
         expr
     end
 
-Compile a supported matexpr-style function definition into a staged Julia
-function using the current frontend processing, normalization, and
-lowering pipeline.
+Compile a supported Matexpr-style function definition into ordinary Julia code.
+The macro expands supported `deriv(...)` calls, uses optional declaration
+metadata from `@declare`, applies structure-aware simplifications when metadata
+is available, and emits fixed-size specializations for selected matrix
+operations.
 
 # Supported input form
 This macro currently supports only function definitions with:
@@ -176,6 +183,17 @@ This macro currently supports only function definitions with:
 - an optional `@declare begin ... end` block containing only `input(...)`
   declarations with integer-literal dimensions
 - a single expression after declarations
+
+# Supported expression features
+The final expression may contain numeric literals, symbols, transpose, binary
+`+`, `-`, `*`, `/`, unary `-`, `sin`, `cos`, `exp`, Julia vector and matrix
+literals, and supported `deriv(f, x)` calls.
+
+# Structured specializations
+With declarations, Matexpr currently specializes diagonal matrix-vector,
+dense/symmetric matrix-vector, diagonal-diagonal, dense/symmetric
+matrix-matrix, and matrix addition/subtraction expressions when their fixed
+dimensions match the supported patterns.
 
 # Example
 ```julia
